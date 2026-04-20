@@ -1915,7 +1915,7 @@ function showToast(msg){
 // ═══════════════════════════════════════════════════
 // ⚡ VERCEL PROXY — HARDCODED REAL-TIME IDX
 // ═══════════════════════════════════════════════════
-const VERCEL_URL  = 'https://trading-engine-v2.vercel.app';
+const VERCEL_URL  = 'https://trading-engine-v2-git-main-belajarizalf-specs-projects.vercel.app';
 const API         = VERCEL_URL + '/api/proxy';
 const SCANNER_API = VERCEL_URL + '/api/scanner';
 const IS_VERCEL   = true;
@@ -1931,44 +1931,40 @@ const WATCHLIST = ['GOTO','BBCA','BMRI','BBRI','BBNI','TLKM','ASII','UNVR','BREN
 // ── REST via Vercel Proxy (no CORS) ──
 async function apiBatch(tickers) {
   try {
-    const url = IS_VERCEL
-      ? `${API}?endpoint=ticks&codes=${tickers.join(',')}`
-      : `${ITICK_BASE}/stock/ticks?region=${REGION}&codes=${tickers.join(',')}`;
-    const opts = IS_VERCEL ? {} : { headers:{ token:ITICK_TOKEN } };
-    const r = await fetch(url, opts);
+    const r = await fetch(`${API}?endpoint=ticks&codes=${tickers.join(',')}`);
     const j = await r.json();
-    return (j.code===0) ? j.data : {};
+    if (j.code !== 0) return {};
+    // ITICK ticks returns {data: {TICKER: {s,ld,t,v}}}
+    // Enrich with extra fields needed by applyBatchToStocks
+    const result = {};
+    Object.keys(j.data || {}).forEach(ticker => {
+      const d = j.data[ticker];
+      result[ticker] = { ld: d.ld, v: d.v, t: d.t, s: d.s,
+        pc: d.pc || 0, h: d.h || d.ld, lo: d.lo || d.ld,
+        o: d.o || d.ld, avol: d.avol || d.v || 0,
+        chp: d.chp || 0, vwap: d.vwap || 0 };
+    });
+    return result;
   } catch(e) { return {}; }
 }
 async function apiKline(ticker, interval='5', limit=60) {
   try {
-    const url = IS_VERCEL
-      ? `${API}?endpoint=kline&code=${ticker}&interval=${interval}&limit=${limit}`
-      : `${ITICK_BASE}/stock/kline?region=${REGION}&code=${ticker}&interval=${interval}&limit=${limit}`;
-    const opts = IS_VERCEL ? {} : { headers:{ token:ITICK_TOKEN } };
-    const r = await fetch(url, opts);
+    const r = await fetch(`${API}?endpoint=kline&code=${ticker}&interval=${interval}&limit=${limit}`);
     const j = await r.json();
-    return (j.code===0) ? j.data : [];
+    return (j.code===0) ? (j.data || []) : [];
   } catch(e) { return []; }
 }
 async function apiIHSG() {
   try {
-    const url = IS_VERCEL
-      ? `${API}?endpoint=quote&code=COMPOSITE`
-      : `${ITICK_BASE}/stock/quote?region=${REGION}&code=COMPOSITE`;
-    const opts = IS_VERCEL ? {} : { headers:{ token:ITICK_TOKEN } };
-    const r = await fetch(url, opts);
+    const r = await fetch(`${API}?endpoint=quote&code=COMPOSITE`);
     const j = await r.json();
-    return (j.code===0) ? j.data : null;
+    if (j.code !== 0) return null;
+    return j.data;
   } catch(e) { return null; }
 }
 async function apiSingleQuote(ticker) {
   try {
-    const url = IS_VERCEL
-      ? `${API}?endpoint=quote&code=${ticker}`
-      : `${ITICK_BASE}/stock/quote?region=${REGION}&code=${ticker}`;
-    const opts = IS_VERCEL ? {} : { headers:{ token:ITICK_TOKEN } };
-    const r = await fetch(url, opts);
+    const r = await fetch(`${API}?endpoint=quote&code=${ticker}`);
     const j = await r.json();
     return (j.code===0) ? j.data : null;
   } catch(e) { return null; }
