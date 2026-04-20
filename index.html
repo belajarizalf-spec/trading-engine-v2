@@ -584,6 +584,7 @@ body{background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:14px
   </div>
   <div class="topbar-r">
     <div class="session-pill sp-i" id="sessionPill">INTRADAY</div>
+    <div id="rtDot" style="width:7px;height:7px;border-radius:50%;background:var(--t3);flex-shrink:0" title="Status real-time"></div>
     <div class="clock" id="clockEl">--:--</div>
     <button class="theme-btn" onclick="toggleTheme()" title="Toggle Dark/Light">
       <span class="theme-icon" id="themeIcon">🌙</span>
@@ -1163,26 +1164,210 @@ function goPage(id,el){
 // ════════════════════════════════════════════════════
 // SEARCH
 // ════════════════════════════════════════════════════
-function onSearch(input){
+// ── Database 80+ saham IDX untuk search offline ──
+const IDX_DATABASE = [
+  {ticker:'GOTO',name:'GoTo Gojek Tokopedia',sector:'Technology'},
+  {ticker:'BBCA',name:'Bank Central Asia',sector:'Banking'},
+  {ticker:'BMRI',name:'Bank Mandiri',sector:'Banking'},
+  {ticker:'BBRI',name:'Bank Rakyat Indonesia',sector:'Banking'},
+  {ticker:'BBNI',name:'Bank Negara Indonesia',sector:'Banking'},
+  {ticker:'TLKM',name:'Telkom Indonesia',sector:'Telecom'},
+  {ticker:'ASII',name:'Astra International',sector:'Auto'},
+  {ticker:'UNVR',name:'Unilever Indonesia',sector:'Consumer'},
+  {ticker:'ICBP',name:'Indofood CBP Sukses',sector:'Consumer'},
+  {ticker:'INDF',name:'Indofood Sukses Makmur',sector:'Consumer'},
+  {ticker:'KLBF',name:'Kalbe Farma',sector:'Healthcare'},
+  {ticker:'SIDO',name:'Sido Muncul',sector:'Healthcare'},
+  {ticker:'MYOR',name:'Mayora Indah',sector:'Consumer'},
+  {ticker:'HMSP',name:'HM Sampoerna',sector:'Consumer'},
+  {ticker:'GGRM',name:'Gudang Garam',sector:'Consumer'},
+  {ticker:'BREN',name:'Barito Renewables Energy',sector:'Energy'},
+  {ticker:'PGEO',name:'Pertamina Geothermal',sector:'Energy'},
+  {ticker:'ADRO',name:'Adaro Energy Indonesia',sector:'Mining'},
+  {ticker:'PTBA',name:'Bukit Asam',sector:'Mining'},
+  {ticker:'ITMG',name:'Indo Tambangraya Megah',sector:'Mining'},
+  {ticker:'MDKA',name:'Merdeka Copper Gold',sector:'Mining'},
+  {ticker:'AMMN',name:'Amman Mineral Internasional',sector:'Mining'},
+  {ticker:'ANTM',name:'Aneka Tambang',sector:'Mining'},
+  {ticker:'TINS',name:'Timah',sector:'Mining'},
+  {ticker:'INCO',name:'Vale Indonesia',sector:'Mining'},
+  {ticker:'MEDC',name:'Medco Energi',sector:'Energy'},
+  {ticker:'PGAS',name:'Perusahaan Gas Negara',sector:'Energy'},
+  {ticker:'AKRA',name:'AKR Corporindo',sector:'Trade'},
+  {ticker:'CPIN',name:'Charoen Pokphand Indonesia',sector:'Agriculture'},
+  {ticker:'JPFA',name:'Japfa Comfeed Indonesia',sector:'Agriculture'},
+  {ticker:'UNTR',name:'United Tractors',sector:'Auto'},
+  {ticker:'AALI',name:'Astra Agro Lestari',sector:'Agriculture'},
+  {ticker:'LSIP',name:'PP London Sumatra',sector:'Agriculture'},
+  {ticker:'SMGR',name:'Semen Indonesia',sector:'Industry'},
+  {ticker:'INTP',name:'Indocement Tunggal',sector:'Industry'},
+  {ticker:'WIKA',name:'Wijaya Karya',sector:'Construction'},
+  {ticker:'PTPP',name:'PP Persero',sector:'Construction'},
+  {ticker:'ADHI',name:'Adhi Karya',sector:'Construction'},
+  {ticker:'WSKT',name:'Waskita Karya',sector:'Construction'},
+  {ticker:'JSMR',name:'Jasa Marga',sector:'Infrastructure'},
+  {ticker:'ISAT',name:'Indosat Ooredoo Hutchison',sector:'Telecom'},
+  {ticker:'EXCL',name:'XL Axiata',sector:'Telecom'},
+  {ticker:'MTEL',name:'Dayamitra Telekomunikasi',sector:'Telecom'},
+  {ticker:'TOWR',name:'Sarana Menara Nusantara',sector:'Telecom'},
+  {ticker:'TBIG',name:'Tower Bersama Infrastructure',sector:'Telecom'},
+  {ticker:'EMTK',name:'Elang Mahkota Teknologi',sector:'Technology'},
+  {ticker:'BUKA',name:'Bukalapak.com',sector:'Technology'},
+  {ticker:'ARTO',name:'Bank Jago',sector:'Banking'},
+  {ticker:'BBYB',name:'Bank Neo Commerce',sector:'Banking'},
+  {ticker:'BBTN',name:'Bank Tabungan Negara',sector:'Banking'},
+  {ticker:'BJBR',name:'Bank Jabar Banten',sector:'Banking'},
+  {ticker:'NISP',name:'Bank OCBC NISP',sector:'Banking'},
+  {ticker:'MEGA',name:'Bank Mega',sector:'Banking'},
+  {ticker:'BNGA',name:'Bank CIMB Niaga',sector:'Banking'},
+  {ticker:'PWON',name:'Pakuwon Jati',sector:'Property'},
+  {ticker:'BSDE',name:'Bumi Serpong Damai',sector:'Property'},
+  {ticker:'SMRA',name:'Summarecon Agung',sector:'Property'},
+  {ticker:'CTRA',name:'Ciputra Development',sector:'Property'},
+  {ticker:'PANI',name:'Pantai Indah Kapuk Dua',sector:'Property'},
+  {ticker:'ACES',name:'Ace Hardware Indonesia',sector:'Trade'},
+  {ticker:'MAPI',name:'Mitra Adiperkasa',sector:'Trade'},
+  {ticker:'LPPF',name:'Matahari Department Store',sector:'Trade'},
+  {ticker:'ERAA',name:'Erajaya Swasembada',sector:'Trade'},
+  {ticker:'AUTO',name:'Astra Otoparts',sector:'Auto'},
+  {ticker:'GJTL',name:'Gajah Tunggal',sector:'Auto'},
+  {ticker:'KAEF',name:'Kimia Farma',sector:'Healthcare'},
+  {ticker:'TSPC',name:'Tempo Scan Pacific',sector:'Healthcare'},
+  {ticker:'MIKA',name:'Mitra Keluarga Karyasehat',sector:'Healthcare'},
+  {ticker:'HEAL',name:'Medikaloka Hermina',sector:'Healthcare'},
+  {ticker:'MNCN',name:'Media Nusantara Citra',sector:'Media'},
+  {ticker:'SCMA',name:'Surya Citra Media',sector:'Media'},
+];
+
+let searchTimer=null;
+async function onSearch(input){
   const q=input.value.trim().toUpperCase();
   const clear=document.getElementById('searchClear');
   const results=document.getElementById('searchResults');
   clear.classList.toggle('show',q.length>0);
   if(!q){results.classList.remove('show');return;}
-  const matches=ALL_STOCKS.filter(s=>s.ticker.includes(q)||s.name.toUpperCase().includes(q));
-  if(!matches.length){results.innerHTML='<div style="padding:14px;font-size:11px;color:var(--t3);text-align:center;font-family:var(--mono)">Saham tidak ditemukan</div>';results.classList.add('show');return;}
-  const tagMap={'ai':['t-g','A+ Intraday'],'ab':['t-p','A+ BSJP'],'b':['t-y','B Setup'],'avoid':['t-r','Avoid']};
-  results.innerHTML=matches.map(s=>{
-    const [tc,tt]=tagMap[s.label];
+
+  // Cari di ALL_STOCKS (sudah ada data real)
+  const inScanner=ALL_STOCKS.filter(s=>s.ticker.includes(q)||s.name.toUpperCase().includes(q));
+  // Cari di database IDX lengkap
+  const inDB=IDX_DATABASE.filter(s=>(s.ticker.includes(q)||s.name.toUpperCase().includes(q))&&!inScanner.find(x=>x.ticker===s.ticker)).slice(0,6);
+
+  const tagMap={'ai':['t-g','🔥 A+'],'ab':['t-p','🌙 A+'],'b':['t-y','⚠️ B'],'avoid':['t-r','❌']};
+
+  const scannerHTML=inScanner.map(s=>{
+    const [tc,tt]=tagMap[s.label]||['t-dim','–'];
     const cc=s.chg>=0?'up':'dn';
+    const cPre=s.chg>=0?'+':'';
     return `<div class="sr-item" onclick="selectFromSearch('${s.ticker}')">
       <div class="sr-ticker ${cc}">${s.ticker}</div>
       <div class="sr-name">${s.name}</div>
-      <span class="sr-tag ${tc}">${tt}</span>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+        <span style="font-family:var(--mono);font-size:10px" class="${cc}">${cPre}${s.chg}%</span>
+        <span class="sr-tag ${tc}">${tt}</span>
+      </div>
     </div>`;
   }).join('');
+
+  const dbHTML=inDB.map(s=>`
+    <div class="sr-item" onclick="addAndSelect('${s.ticker}','${s.name}','${s.sector}')">
+      <div class="sr-ticker" style="color:var(--b)">${s.ticker}</div>
+      <div class="sr-name">${s.name}</div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+        <span style="font-family:var(--mono);font-size:9px;color:var(--t3)">${s.sector}</span>
+        <span class="sr-tag t-b">+ Lihat</span>
+      </div>
+    </div>`).join('');
+
+  if(!scannerHTML&&!dbHTML){
+    results.innerHTML=`<div style="padding:12px 14px;font-family:var(--mono);font-size:10px;color:var(--t3)">Mencari "${q}" via ITICK API...<span id="srLoad" style="color:var(--y)"> ⏳</span></div>`;
+    results.classList.add('show');
+    clearTimeout(searchTimer);
+    searchTimer=setTimeout(()=>fetchSearchAPI(q),600);
+    return;
+  }
+
+  const sep=scannerHTML&&dbHTML?`<div style="padding:5px 14px;font-family:var(--mono);font-size:8px;color:var(--t3);background:var(--s2);letter-spacing:.08em;text-transform:uppercase">Saham Lain di IDX</div>`:'';
+  results.innerHTML=scannerHTML+sep+dbHTML;
   results.classList.add('show');
 }
+
+async function fetchSearchAPI(q){
+  if(!IS_VERCEL && ITICK_TOKEN==='MASUKKAN_API_KEY_ITICK_ANDA_DISINI'){
+    document.getElementById('searchResults').innerHTML=`<div style="padding:12px 14px;font-family:var(--mono);font-size:10px;color:var(--t3)">Tidak ditemukan. Isi ITICK Token untuk search semua saham IDX.</div>`;
+    return;
+  }
+  try{
+    const r=await fetch(`${ITICK_BASE}/stock/quote?region=${REGION}&code=${q}`,{headers:{token:ITICK_TOKEN}});
+    const j=await r.json();
+    if(j.code===0&&j.data){
+      const d=j.data;
+      const cc=(d.chp||0)>=0?'up':'dn';
+      document.getElementById('searchResults').innerHTML=`
+        <div class="sr-item" onclick="addAndSelect('${q}','${d.n||q}','IDX')">
+          <div class="sr-ticker ${cc}">${q}</div>
+          <div class="sr-name">${d.n||q}</div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+            <span style="font-family:var(--mono);font-size:10px" class="${cc}">${(d.chp||0)>=0?'+':''}${(d.chp||0).toFixed(2)}%</span>
+            <span class="sr-tag t-b">+ Lihat</span>
+          </div>
+        </div>`;
+    }else{
+      document.getElementById('searchResults').innerHTML=`<div style="padding:12px 14px;font-family:var(--mono);font-size:10px;color:var(--t3)">Ticker "${q}" tidak ditemukan di IDX</div>`;
+    }
+  }catch(e){
+    document.getElementById('searchResults').innerHTML=`<div style="padding:12px 14px;font-family:var(--mono);font-size:10px;color:var(--r)">Gagal fetch: ${e.message}</div>`;
+  }
+}
+
+function makeDefaultStock(ticker,name,sector){
+  return {ticker,name:name||ticker,sector:sector||'IDX',price:0,chg:0,label:'b',score:50,mode:'INTRADAY',
+    entry:'–',sl:'–',tp:'–',rr:'–',lot:'–',reason:'Memuat data...',timing:'WAIT',conf:'MED',
+    vwap:0,ma20:0,rsi:50,volRatio:1,gap:0,auctionPrice:0,auctionDiff:0,
+    mtf:{D:'neut','1H':'neut','15M':'neut'},
+    trap:{upperWick:false,fakeBreak:false,volumeNoMove:false,gapDump:false,rsiExtreme:false},
+    patterns:[{name:'Loading...',desc:'Memuat data dari ITICK',signal:'NEUTRAL',icon:'⏳'}],
+    sr:[{type:'R1',level:0,strength:2,label:'Resistance'},{type:'S1',level:0,strength:3,label:'Support'}],
+    jam:[{time:'09:45–10:30',act:'Entry window',wr:'75%',hot:true}],
+    vol:{regime:'NORMAL',vix:12,sub:'Normal',color:'g'},
+    confluence:[['Data','Memuat...',false]],scores:{Score:50},
+    correlation:[],corrSector:sector||'IDX',
+    ff:{asingBuy:0,asingJual:0,domBuy:0,domJual:0,netAsing:'N/A',netDom:'N/A',pctAsing:50},
+    bandar:[],orderBook:{bid:[],offer:[]},
+    smartMoney:{bigLot:'N/A',netBuy:'N/A',unusual:'N/A',flow:'N/A'},
+    mlScore:50,mlProb:'50%',mlPass:8,mlTotal:17};
+}
+
+async function addAndSelect(ticker,name,sector){
+  clearSearch();
+  showToast(`⏳ Loading ${ticker}...`);
+  let stock=ALL_STOCKS.find(s=>s.ticker===ticker);
+  if(!stock){
+    stock=makeDefaultStock(ticker,name,sector);
+    ALL_STOCKS.push(stock);
+    if(IS_VERCEL || ITICK_TOKEN!=='MASUKKAN_API_KEY_ITICK_ANDA_DISINI'){
+      try{
+        const q2=await apiSingleQuote(ticker);
+        if(q2){
+          applyBatchToStocks({[ticker]:q2});
+          stock=ALL_STOCKS.find(s=>s.ticker===ticker);
+        }
+      }catch(e){}
+    }
+    if(false){
+      try{
+        const r=await fetch('x');
+      }catch(e){}
+    }
+    renderScanner();
+  }
+  selected=stock;
+  renderScanner();
+  renderChartPage();
+  renderActionPage();
+  renderIntelPage();
+  showToast(`${ticker} · Score ${stock.score} · ${stock.timing}`);
+}
+
 function clearSearch(){
   document.getElementById('searchInput').value='';
   document.getElementById('searchClear').classList.remove('show');
@@ -1728,40 +1913,106 @@ function showToast(msg){
 }
 
 // ════════════════════════════════════════════════════
-// ⚡ ITICK API CONFIG
-// Daftar di itick.org → menu Keys → copy token
+// ⚡ VERCEL PROXY CONFIG — Real-time IDX Data
+// Token ITICK disimpan AMAN di Vercel Environment
+// Ganti URL di bawah setelah deploy ke Vercel
 // ════════════════════════════════════════════════════
-const ITICK_TOKEN = 'd03bed5083e2498a9036494b7e181093814e20795720496e9ea5df705c7cfdd7';
+const VERCEL_URL = 'GANTI_DENGAN_URL_VERCEL_ANDA';
+// Contoh: const VERCEL_URL = 'https://trading-engine-v2.vercel.app';
+
+const API         = `${VERCEL_URL}/api/proxy`;
+const SCANNER_API = `${VERCEL_URL}/api/scanner`;
+const IS_VERCEL   = VERCEL_URL !== 'GANTI_DENGAN_URL_VERCEL_ANDA';
+
+// Fallback ITICK langsung jika belum ada Vercel (untuk testing lokal)
+const ITICK_TOKEN = 'MASUKKAN_API_KEY_ITICK_ANDA_DISINI';
 const ITICK_BASE  = 'https://api.itick.org';
 const REGION      = 'ID';
-const WATCHLIST   = ['GOTO','BBCA','BMRI','TLKM','BBRI','ASII','BREN','AMMN','MDKA','UNVR'];
 
-// ── REST helpers ──
+const WATCHLIST = ['GOTO','BBCA','BMRI','BBRI','BBNI','TLKM','ASII','UNVR','BREN','AMMN',
+  'MDKA','ADRO','PTBA','ANTM','INCO','ICBP','KLBF','MYOR','SMGR','UNTR',
+  'ISAT','EXCL','PWON','BSDE','CTRA','ACES','PGAS','MEDC','CPIN','JSMR',
+  'ARTO','TOWR','EMTK','INTP','AALI'];
+
+// ── REST via Vercel Proxy (no CORS) ──
 async function apiBatch(tickers) {
   try {
-    const r = await fetch(`${ITICK_BASE}/stock/ticks?region=${REGION}&codes=${tickers.join(',')}`,
-      { headers:{ token:ITICK_TOKEN } });
+    const url = IS_VERCEL
+      ? `${API}?endpoint=ticks&codes=${tickers.join(',')}`
+      : `${ITICK_BASE}/stock/ticks?region=${REGION}&codes=${tickers.join(',')}`;
+    const opts = IS_VERCEL ? {} : { headers:{ token:ITICK_TOKEN } };
+    const r = await fetch(url, opts);
     const j = await r.json();
     return (j.code===0) ? j.data : {};
   } catch(e) { return {}; }
 }
 async function apiKline(ticker, interval='5', limit=60) {
   try {
-    const r = await fetch(`${ITICK_BASE}/stock/kline?region=${REGION}&code=${ticker}&interval=${interval}&limit=${limit}`,
-      { headers:{ token:ITICK_TOKEN } });
+    const url = IS_VERCEL
+      ? `${API}?endpoint=kline&code=${ticker}&interval=${interval}&limit=${limit}`
+      : `${ITICK_BASE}/stock/kline?region=${REGION}&code=${ticker}&interval=${interval}&limit=${limit}`;
+    const opts = IS_VERCEL ? {} : { headers:{ token:ITICK_TOKEN } };
+    const r = await fetch(url, opts);
     const j = await r.json();
     return (j.code===0) ? j.data : [];
   } catch(e) { return []; }
 }
 async function apiIHSG() {
   try {
-    const r = await fetch(`${ITICK_BASE}/stock/quote?region=${REGION}&code=COMPOSITE`,
-      { headers:{ token:ITICK_TOKEN } });
+    const url = IS_VERCEL
+      ? `${API}?endpoint=quote&code=COMPOSITE`
+      : `${ITICK_BASE}/stock/quote?region=${REGION}&code=COMPOSITE`;
+    const opts = IS_VERCEL ? {} : { headers:{ token:ITICK_TOKEN } };
+    const r = await fetch(url, opts);
+    const j = await r.json();
+    return (j.code===0) ? j.data : null;
+  } catch(e) { return null; }
+}
+async function apiSingleQuote(ticker) {
+  try {
+    const url = IS_VERCEL
+      ? `${API}?endpoint=quote&code=${ticker}`
+      : `${ITICK_BASE}/stock/quote?region=${REGION}&code=${ticker}`;
+    const opts = IS_VERCEL ? {} : { headers:{ token:ITICK_TOKEN } };
+    const r = await fetch(url, opts);
     const j = await r.json();
     return (j.code===0) ? j.data : null;
   } catch(e) { return null; }
 }
 
+// ── Auto Scanner 200+ Saham IDX via Vercel ──
+async function runAutoScanner() {
+  if(!IS_VERCEL) return;
+  try {
+    const r = await fetch(`${SCANNER_API}?filter=all&limit=100`);
+    const j = await r.json();
+    if(!j.stocks||!j.stocks.length) return;
+    let newFound=0;
+    j.stocks.forEach(s=>{
+      const existing=ALL_STOCKS.find(x=>x.ticker===s.ticker);
+      if(existing){
+        existing.price=s.price;existing.chg=s.chg;existing.score=s.score;
+        existing.label=s.label;existing.volRatio=s.volRatio;existing.rsi=s.rsi;
+        existing.vwap=s.vwap;existing.gap=s.gap;
+      } else if(['ai','ab'].includes(s.label)){
+        const db=IDX_DATABASE.find(d=>d.ticker===s.ticker)||{name:s.ticker,sector:'IDX'};
+        const ns=makeDefaultStock(s.ticker,db.name,db.sector);
+        ns.price=s.price;ns.chg=s.chg;ns.score=s.score;ns.label=s.label;
+        ns.volRatio=s.volRatio;ns.rsi=s.rsi;ns.vwap=s.vwap;ns.gap=s.gap;
+        ns.timing=s.label==='ai'?(new Date().getHours()<12?'ENTRY NOW':'WAIT'):'SORE 14:30';
+        ns.conf=s.score>=90?'HIGH':'MED';
+        ALL_STOCKS.push(ns);newFound++;
+      }
+    });
+    ALL_STOCKS.sort((a,b)=>b.score-a.score);
+    const aplus=j.summary?.aplus||0;
+    const total=j.total_scanned||0;
+    document.getElementById('regimeSub').textContent=
+      `${aplus} sinyal A+ dari ${total} saham · Auto scanner aktif`;
+    if(newFound>0){showToast(`🔥 ${newFound} saham A+ baru ditemukan!`);renderScanner();}
+    return j;
+  }catch(e){console.warn('Scanner:',e);}
+}
 // ── Update harga dari batch data real ──
 function applyBatchToStocks(batch) {
   if (!batch || !Object.keys(batch).length) return;
@@ -1861,6 +2112,8 @@ async function fetchAllStocks() {
     if (!Object.keys(batch).length) { setApiStatus('error','Cek API Key'); return; }
     applyBatchToStocks(batch);
     setApiStatus('ok', Date.now()-t0);
+    const rtd=document.getElementById('rtDot');
+    if(rtd){rtd.style.background='var(--g)';rtd.style.boxShadow='0 0 6px var(--g)';}
     renderScanner();
     renderChartPage();
     renderActionPage();
@@ -2010,14 +2263,20 @@ window.addEventListener('load',async()=>{
     // Connect WebSocket real-time
     connectWS();
 
-    // Auto refresh setiap 60 detik (backup jika WS putus)
+    // ── Polling real-time harga setiap 5 detik ──
     setInterval(async()=>{
-      try { await fetchAllStocks(); }   catch(e){}
+      try{ await fetchAllStocks(); renderScanner(); }catch(e){}
       if(!wsOk) connectWS();
-    }, 60_000);
+    }, 5000);
 
-    // IHSG refresh setiap 30 detik
-    setInterval(async()=>{ try{await fetchIHSG();}catch(e){} }, 30_000);
+    // ── IHSG update setiap 3 detik ──
+    setInterval(async()=>{ try{await fetchIHSG();}catch(e){} }, 3000);
+
+    // ── Auto Scanner 200+ saham setiap 30 detik ──
+    setInterval(async()=>{ try{await runAutoScanner();}catch(e){} }, 30000);
+
+    // Jalankan scanner pertama kali setelah 3 detik
+    setTimeout(async()=>{ try{await runAutoScanner();}catch(e){} }, 3000);
 
   }, 1800);
 });
