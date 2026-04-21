@@ -2599,7 +2599,9 @@ function getNextSingleTicker() {
 }
 
 // ── GORILA SCORING ENGINE V3 ──
-async function calcGorilaScoreV3(d, ticker) {
+function calcGorilaScore(d,ticker){ return null; }
+
+// ── RECOVERY SCORING ENGINE V3 ──
   if (!d||!d.ld||d.ld<=0) return null;
   const price=d.ld,open=d.o||price,high=d.h||price,low=d.lo||price,prev=d.pc||price;
   const chg=d.chp||0,vol=d.v||0,avgVol=d.avol||vol||1,volR=avgVol>0?vol/avgVol:1;
@@ -2714,8 +2716,7 @@ async function calcRecoveryScoreV3(d, ticker) {
     wyckoffSpring:isSpring,isOversold:rsiProxy<=35,
     consecutiveDown:consecDown,sectorHot:sec.hot};
 }
-function calcRecoveryScore(d,ticker){
-}
+function calcRecoveryScore(d,ticker){ return null; }
 
 // Update layer data dari ALL_STOCKS
 function updateLayerData() {
@@ -2773,21 +2774,7 @@ layerData.core = ALL_STOCKS.filter(s =>
   layerData.gorila = layerData.gorila || [];
   layerData.recovery = layerData.recovery || [];
 
-  layerData.recovery = ALL_STOCKS
-    .filter(s => ROTATION_POOL.recovery.includes(s.ticker) && hasPrice(s))
-    .map(s => {
-      const d={ld:s.price,o:s.open||s.price,h:s.high||s.price*1.02,lo:s.low||s.price*0.98,
-        pc:s.prevClose||s.price/(1+(s.chg||0)/100),chp:s.chg||0,
-        v:s.vol||0,avol:(s.vol||0)/(s.volRatio||1)||1,rsi:s.rsi||50};
-      const pro=calcRecoveryScore(d,s.ticker);
-      if(!pro)return null;
-      return{...s,...pro};
-    })
-    .filter(Boolean)
-    .sort((a,b) => b.score - a.score)
-    .slice(0,15);
-
-  // Update tab counts
+// Update tab counts
   document.getElementById('cnt-core').textContent     = layerData.core.filter(s=>['ai','ab'].includes(s.label)).length || layerData.core.length;
   document.getElementById('cnt-momentum').textContent = layerData.momentum.length;
   document.getElementById('cnt-gorila').textContent   = layerData.gorila.length;
