@@ -2503,12 +2503,13 @@ async function fetchRotationBatch() {
       ALL_STOCKS.push(stock);
     }
 
-    stock.price    = d.ld;
-    stock.chg      = d.chp || 0;
-    stock.vol      = d.v   || 0;
-    stock.high     = d.h   || d.ld;
-    stock.low      = d.lo  || d.ld;
-    stock.open     = d.o   || d.ld;
+stock.price     = d.ld;
+    stock.chg       = d.chp || 0;
+    stock.vol       = d.v   || 0;
+    stock.high      = d.h   || d.ld;
+    stock.low       = d.lo  || d.ld;
+    stock.open      = d.o   || d.ld;
+    stock.prevClose = d.pc  || d.ld;
     stock.vwap     = pro.vwap;
     stock.volRatio = parseFloat((pro.volR || 1).toFixed(2));
     stock.score    = pro.score;
@@ -2556,39 +2557,113 @@ function getNextSingleTicker() {
   return pool[idx];
 }
 
+// ── GORILA SCORING ENGINE ──
+function calcGorilaScore(d,ticker){
+  if(!d||!d.ld||d.ld<=0)return null;
+  const price=d.ld,open=d.o||price,high=d.h||price,low=d.lo||price,prev=d.pc||price;
+  const chg=d.chp||0,vol=d.v||0,avgVol=d.avol||vol||1,volR=avgVol>0?vol/avgVol:1;
+  const body=Math.abs(price-open),range=high-low||1;
+  const upperW=high-Math.max(price,open),lowerW=Math.min(price,open)-low;
+  if(upperW>body*1.5&&upperW>range*0.35)return null;
+  if(chg>=5&&price<(d.vwap||price*0.995))return null;
+  if(vol<1000000)return null;
+  let score=0;
+  const araLimit=price<=200?25:35;
+  const araProx=(chg/araLimit)*100;
+  score+=chg>=15?25:chg>=10?22:chg>=7?18:chg>=5?14:chg>=3?8:0;
+  const bodyR=body/range;
+  const genuineVol=volR>=3&&bodyR>=0.5;
+  score+=genuineVol&&volR>=5?25:genuineVol&&volR>=3?20:volR>=3&&bodyR>=0.3?15:volR>=2&&bodyR>=0.3?10:volR>=2?6:0;
+  score+=araProx>=30&&araProx<=75?20:araProx>=15&&araProx<30?15:araProx>75?5:araProx>=5?8:0;
+  const wickR=upperW/range;
+  score+=wickR<0.2&&bodyR>=0.5?15:wickR<0.3&&bodyR>=0.4?10:wickR<0.4?6:0;
+  score+=marketCtx.regime==='bull'?10:marketCtx.regime==='neutral'?5:2;
+  score+=price<=100?5:price<=200?4:price<=500?2:1;
+  score=Math.max(0,Math.min(100,score));
+  let label,reason;
+  if(score>=75&&chg>=10){label='ara_candidate';reason=`🦍 ARA ${chg.toFixed(1)}% · Vol ${volR.toFixed(1)}x · Score ${score}`;}
+  else if(score>=60&&chg>=5){label='early_pump';reason=`🚀 Pump ${chg.toFixed(1)}% · Vol ${volR.toFixed(1)}x · Score ${score}`;}
+  else if(score>=45){label='gorila_watch';reason=`👀 Watch ${chg.toFixed(1)}% · Vol ${volR.toFixed(1)}x`;}
+  else return null;
+  const sl=Math.round(price*0.93/10)*10,tp1=Math.round(price*1.10/10)*10;
+  const tp2=Math.round(price*(1+araLimit/100*0.8)/10)*10;
+  return{score,label,reason,chg,volR,price,sl,tp1,tp2,araProximity:Math.round(araProx),isNearARA:araProx>=60};
+}
+
+// ── RECOVERY SCORING ENGINE ──
+function calcRecoveryScore(d,ticker){
+  if(!d||!d.ld||d.ld<=0)return null;
+  const price=d.ld,open=d.o||price,high=d.h||price,low=d.lo||price,prev=d.pc||price;
+  const chg=d.chp||0,vol=d.v||0,avgVol=d.avol||vol||1,volR=avgVol>0?vol/avgVol:1;
+  const body=Math.abs(price-open),range=high-low||1;
+  const upperW=high-Math.max(price,open),lowerW=Math.min(price,open)-low;
+  if(chg<-3)return null;
+  if(vol<500000)return null;
+  let score=0;
+  const rsiProxy=d.rsi||50;
+  score+=rsiProxy<=25?20:rsiProxy<=30?17:rsiProxy<=35?13:rsiProxy<=40?8:3;
+  const lwR=lowerW/range,uwR=upperW/range,bodyR=body/range;
+  const isHammer=lwR>=0.55&&uwR<0.2,isDoji=bodyR<0.15&&lwR>=0.4,isBull=chg>=1&&price>open&&bodyR>=0.5;
+  score+=isHammer?25:isBull&&chg>=2?22:isBull?16:isDoji?14:chg>=1?8:chg>=0?4:0;
+  score+=volR>=2.5&&chg>=1?20:volR>=1.5&&chg>=1?15:volR>=1.2&&chg>=0.5?10:volR>=1?5:0;
+  score+=lwR>=0.4&&chg>=1?20:lwR>=0.3&&chg>=0.5?14:lwR>=0.2?8:3;
+  const isSpring=low<(prev*0.99)&&price>prev;
+  score+=isSpring&&volR>=1.5?10:isSpring?6:chg>=1.5?4:0;
+  score+=marketCtx.regime==='bull'?5:marketCtx.regime==='neutral'?3:0;
+  score=Math.max(0,Math.min(100,score));
+  let label,reason;
+  if(score>=72){label='reversal_aplus';reason=`🔄 Reversal A+ · ${isHammer?'Hammer':'Bullish'} · Vol ${volR.toFixed(1)}x · Score ${score}`;}
+  else if(score>=55){label='reversal_b';reason=`🔄 Reversal B · Vol ${volR.toFixed(1)}x · Score ${score}`;}
+  else if(score>=40){label='reversal_watch';reason=`👀 Watch · ${chg>=0?'+':''}${chg.toFixed(1)}% · Score ${score}`;}
+  else return null;
+  const sl=Math.round(low*0.98/10)*10,tp1=Math.round(price*1.05/10)*10,tp2=Math.round(price*1.10/10)*10;
+  return{score,label,reason,chg,volR,price,sl,tp1,tp2,wyckoffSpring:isSpring,isOversold:rsiProxy<=35};
+}
+
 // Update layer data dari ALL_STOCKS
 function updateLayerData() {
   const hasPrice = s => s.price > 0;
 
-  layerData.core = ALL_STOCKS.filter(s =>
+layerData.core = ALL_STOCKS.filter(s =>
     ROTATION_POOL.core.includes(s.ticker) && hasPrice(s)
   );
 
   layerData.momentum = ALL_STOCKS
-    .filter(s => ROTATION_POOL.momentum.includes(s.ticker) && hasPrice(s))
-    .map(s => ({...s,
-      label: s.chg >= 2 ? 'momentum_aplus' : 'momentum_b',
-      reason: `Vol ${s.volRatio||1}x · ${s.chg>=0?'+':''}${s.chg||0}%`
-    }));
+    .filter(s => ROTATION_POOL.momentum.includes(s.ticker) && hasPrice(s) && s.chg >= 1)
+    .map(s => {
+      const label = s.chg >= 3 && s.volRatio >= 2 ? 'momentum_aplus'
+                  : s.chg >= 1.5 ? 'momentum_b' : 'momentum_watch';
+      return {...s, label, reason:`Vol ${(s.volRatio||1).toFixed(1)}x · +${(s.chg||0).toFixed(1)}%`};
+    })
+    .sort((a,b) => b.score - a.score);
 
   layerData.gorila = ALL_STOCKS
     .filter(s => ROTATION_POOL.gorila.includes(s.ticker) && hasPrice(s) && s.price <= 2000)
-    .map(s => ({...s,
-      label: s.chg >= 10 ? 'ara_candidate' : s.chg >= 3 ? 'early_pump' : 'gorila_watch',
-      reason: `Rp${s.price} · Vol ${s.volRatio||1}x · ${s.chg>=0?'+':''}${s.chg||0}%`
-    }));
+    .map(s => {
+      const d={ld:s.price,o:s.open||s.price,h:s.high||s.price*1.03,lo:s.low||s.price*0.97,
+        pc:s.prevClose||s.price/(1+(s.chg||0)/100),chp:s.chg||0,
+        v:s.vol||0,avol:(s.vol||0)/(s.volRatio||1)||1,vwap:s.vwap||s.price};
+      const pro=calcGorilaScore(d,s.ticker);
+      if(!pro)return null;
+      return{...s,...pro};
+    })
+    .filter(Boolean)
+    .sort((a,b) => b.score - a.score)
+    .slice(0,15);
 
   layerData.recovery = ALL_STOCKS
     .filter(s => ROTATION_POOL.recovery.includes(s.ticker) && hasPrice(s))
-    .map(s => ({...s,
-      label: s.chg >= 1 ? 'reversal_aplus' : 'reversal_b',
-      reason: `Rebound · ${s.chg>=0?'+':''}${s.chg||0}% · Vol ${s.volRatio||1}x`
-    }));
-
-  // Sort by score
-  layerData.momentum.sort((a,b) => b.score - a.score);
-  layerData.gorila.sort((a,b) => b.score - a.score);
-  layerData.recovery.sort((a,b) => b.score - a.score);
+    .map(s => {
+      const d={ld:s.price,o:s.open||s.price,h:s.high||s.price*1.02,lo:s.low||s.price*0.98,
+        pc:s.prevClose||s.price/(1+(s.chg||0)/100),chp:s.chg||0,
+        v:s.vol||0,avol:(s.vol||0)/(s.volRatio||1)||1,rsi:s.rsi||50};
+      const pro=calcRecoveryScore(d,s.ticker);
+      if(!pro)return null;
+      return{...s,...pro};
+    })
+    .filter(Boolean)
+    .sort((a,b) => b.score - a.score)
+    .slice(0,15);
 
   // Update tab counts
   document.getElementById('cnt-core').textContent     = layerData.core.filter(s=>['ai','ab'].includes(s.label)).length || layerData.core.length;
