@@ -2599,9 +2599,7 @@ function getNextSingleTicker() {
 }
 
 // ── GORILA SCORING ENGINE V3 ──
-function calcGorilaScore(d,ticker){ return null; }
-
-// ── RECOVERY SCORING ENGINE V3 ──
+async function calcGorilaScoreV3(d,ticker){
   if (!d||!d.ld||d.ld<=0) return null;
   const price=d.ld,open=d.o||price,high=d.h||price,low=d.lo||price,prev=d.pc||price;
   const chg=d.chp||0,vol=d.v||0,avgVol=d.avol||vol||1,volR=avgVol>0?vol/avgVol:1;
@@ -2654,10 +2652,9 @@ function calcGorilaScore(d,ticker){ return null; }
   const tp2=Math.round(price*(1+araLimit/100*0.8)/10)*10;
   return {score,label,reason,chg,volR,price,sl,tp1,tp2,
     araProximity:Math.round(araProx),isNearARA:araProx>=60,
-    consecutiveUp:consecUp,sectorHot:sec.hot};
+consecutiveUp:consecUp,sectorHot:sec.hot};
 }
-function calcGorilaScore(d,ticker){
-}
+function calcGorilaScore(d,ticker){return null;}
 
 // ── RECOVERY SCORING ENGINE V3 ──
 async function calcRecoveryScoreV3(d, ticker) {
