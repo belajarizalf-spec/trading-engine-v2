@@ -1654,10 +1654,27 @@ function selectStock(ticker){
 // MARKET BREADTH
 // ════════════════════════════════════════════════════
 function renderBreadth(){
+  const real=ALL_STOCKS.filter(s=>s.price>0&&s.chg!==undefined);
+  const total=real.length||1;
+  const naik=real.filter(s=>s.chg>0.3).length;
+  const turun=real.filter(s=>s.chg<-0.3).length;
+  const sideways=total-naik-turun;
+  const pNaik=Math.round(naik/total*100);
+  const pSide=Math.round(sideways/total*100);
+  const pTurun=100-pNaik-pSide;
+  const regime=pNaik>=55?'BULLISH TRENDING':pNaik>=40?'SIDEWAYS':'BEARISH';
+  const regEl=document.getElementById('regimeMode');
+  const bannerEl=document.getElementById('regimeBanner');
+  if(regEl){regEl.textContent=regime;regEl.className=`rb-mode ${pNaik>=55?'up':pNaik>=40?'nt':'dn'}`;}
+  if(bannerEl){bannerEl.className=`regime-banner ${pNaik>=55?'bull-bg':pNaik>=40?'range-bg':'bear-bg'}`;}
+  const subEl=document.getElementById('regimeSub');
+  const scoreEl=document.getElementById('regScore');
+  if(subEl)subEl.textContent=`Intraday signal aktif · Breadth ${pNaik}%`;
+  if(scoreEl){scoreEl.textContent=Math.round(pNaik*0.82+10);scoreEl.className=`rb-val ${pNaik>=55?'up':pNaik>=40?'nt':'dn'}`;}
   const data=[
-    {val:'68%',lbl:'Saham Naik',color:'var(--g)',pct:68},
-    {val:'18%',lbl:'Sideways',color:'var(--y)',pct:18},
-    {val:'14%',lbl:'Saham Turun',color:'var(--r)',pct:14},
+    {val:pNaik+'%',lbl:'Saham Naik',color:'var(--g)',pct:pNaik},
+    {val:pSide+'%',lbl:'Sideways',color:'var(--y)',pct:pSide},
+    {val:pTurun+'%',lbl:'Saham Turun',color:'var(--r)',pct:pTurun},
   ];
   document.getElementById('breadthGrid').innerHTML=data.map(d=>`
     <div class="breadth-item">
@@ -2516,8 +2533,9 @@ async function fetchRotationBatch() {
       sendTelegramAlert(ticker, d.ld, pro);
     }
 
-    ALL_STOCKS.sort((a,b) => b.score - a.score);
+ALL_STOCKS.sort((a,b) => b.score - a.score);
     renderScanner();
+    renderBreadth();
     updateLayerData();
     setApiStatus('ok', 0);
 
@@ -2540,7 +2558,7 @@ function getNextSingleTicker() {
 
 // Update layer data dari ALL_STOCKS
 function updateLayerData() {
-  const hasPrice = s => s.price > 0 && s.price !== 104 && s.price !== 9750 && s.price !== 6800;
+  const hasPrice = s => s.price > 0;
 
   layerData.core = ALL_STOCKS.filter(s =>
     ROTATION_POOL.core.includes(s.ticker) && hasPrice(s)
@@ -2554,7 +2572,7 @@ function updateLayerData() {
     }));
 
   layerData.gorila = ALL_STOCKS
-    .filter(s => ROTATION_POOL.gorila.includes(s.ticker) && hasPrice(s) && s.price <= 500)
+    .filter(s => ROTATION_POOL.gorila.includes(s.ticker) && hasPrice(s) && s.price <= 2000)
     .map(s => ({...s,
       label: s.chg >= 10 ? 'ara_candidate' : s.chg >= 3 ? 'early_pump' : 'gorila_watch',
       reason: `Rp${s.price} · Vol ${s.volRatio||1}x · ${s.chg>=0?'+':''}${s.chg||0}%`
