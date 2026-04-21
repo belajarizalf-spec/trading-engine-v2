@@ -2692,8 +2692,9 @@ function applyBatchToStocks(batch) {
     stock.timing = stock.label === 'avoid' ? 'AVOID' : stock.label === 'ai' ? 'ENTRY NOW' : isAft ? 'SORE 14:30' : 'WAIT';
     if (selected.ticker === stock.ticker) selected = stock;
   });
-  // Re-render
+// Re-render
   try { renderScanner(); } catch(e) {}
+  try { renderBreadth(); } catch(e) {}
 }
 // ── Fetch semua saham ──
 async function fetchAllStocks() {
