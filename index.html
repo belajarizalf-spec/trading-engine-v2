@@ -1656,8 +1656,8 @@ function selectStock(ticker){
 function renderBreadth(){
   const real=ALL_STOCKS.filter(s=>s.price>0&&s.chg!==undefined);
   const total=real.length||1;
-  const naik=real.filter(s=>s.chg>0.3).length;
-  const turun=real.filter(s=>s.chg<-0.3).length;
+  const naik=real.filter(s=>s.chg>1.0).length;
+  const turun=real.filter(s=>s.chg<-1.0).length;
   const sideways=total-naik-turun;
   const pNaik=Math.round(naik/total*100);
   const pSide=Math.round(sideways/total*100);
