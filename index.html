@@ -2545,6 +2545,47 @@ ALL_STOCKS.sort((a,b) => b.score - a.score);
   }
 }
 
+// ── V3: Fetch kline history untuk consecutive days ──
+const klineCache = {};
+async function fetchKlineHistory(ticker) {
+  if (klineCache[ticker] && Date.now() - klineCache[ticker].ts < 300000) {
+    return klineCache[ticker].data; // cache 5 menit
+  }
+  try {
+    const r = await fetch(`${API}?endpoint=kline&code=${ticker}&interval=8&limit=7`);
+    const j = await r.json();
+    if (j.code !== 0 || !j.data || !j.data.length) return null;
+    klineCache[ticker] = { data: j.data, ts: Date.now() };
+    return j.data;
+  } catch(e) { return null; }
+}
+
+function calcConsecutiveDays(klines, direction) {
+  // direction: 'up' atau 'down'
+  if (!klines || klines.length < 2) return 0;
+  let count = 0;
+  const sorted = [...klines].sort((a,b) => b.t - a.t); // terbaru dulu
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const curr = sorted[i].c || sorted[i].close || 0;
+    const prev = sorted[i+1].c || sorted[i+1].close || 0;
+    if (prev <= 0) break;
+    const chg = (curr - prev) / prev * 100;
+    if (direction === 'up'   && chg > 0.3) count++;
+    else if (direction === 'down' && chg < -0.3) count++;
+    else break;
+  }
+  return count;
+}
+
+function getSectorScore(ticker) {
+  // Cek sektor saham dari IDX_DATABASE + bandingkan ke SECTORS
+  const db = IDX_DATABASE.find(s => s.ticker === ticker);
+  if (!db) return { hot: false, score: 50 };
+  const sec = SECTORS.find(s => s.name === db.sector);
+  if (!sec) return { hot: false, score: 50 };
+  return { hot: sec.score >= 65, score: sec.score };
+}
+
 // Ambil 1 saham berikutnya dari rotasi (1 layer per call)
 const layerOrder = ['core','momentum','gorila','recovery'];
 let layerCursor = 0;
@@ -2557,67 +2598,123 @@ function getNextSingleTicker() {
   return pool[idx];
 }
 
-// ── GORILA SCORING ENGINE ──
-function calcGorilaScore(d,ticker){
-  if(!d||!d.ld||d.ld<=0)return null;
+// ── GORILA SCORING ENGINE V3 ──
+async function calcGorilaScoreV3(d, ticker) {
+  if (!d||!d.ld||d.ld<=0) return null;
   const price=d.ld,open=d.o||price,high=d.h||price,low=d.lo||price,prev=d.pc||price;
   const chg=d.chp||0,vol=d.v||0,avgVol=d.avol||vol||1,volR=avgVol>0?vol/avgVol:1;
   const body=Math.abs(price-open),range=high-low||1;
-  const upperW=high-Math.max(price,open),lowerW=Math.min(price,open)-low;
-  if(upperW>body*1.5&&upperW>range*0.35)return null;
-  if(chg>=5&&price<(d.vwap||price*0.995))return null;
-  if(vol<1000000)return null;
+  const upperW=high-Math.max(price,open);
+  const bodyR=body/range,wickR=upperW/range;
+  // Hard filter
+  if (upperW>body*1.5&&upperW>range*0.35) return null;
+  if (chg>=5&&price<(d.vwap||price*0.995)) return null;
+  if (vol<1000000) return null;
+  if (chg<=0) return null;
   let score=0;
-  const araLimit=price<=200?25:35;
-  const araProx=(chg/araLimit)*100;
+  // Layer 1 — Momentum (0-25)
   score+=chg>=15?25:chg>=10?22:chg>=7?18:chg>=5?14:chg>=3?8:0;
-  const bodyR=body/range;
+  // Layer 2 — Volume Authentic (0-25)
   const genuineVol=volR>=3&&bodyR>=0.5;
   score+=genuineVol&&volR>=5?25:genuineVol&&volR>=3?20:volR>=3&&bodyR>=0.3?15:volR>=2&&bodyR>=0.3?10:volR>=2?6:0;
-  score+=araProx>=30&&araProx<=75?20:araProx>=15&&araProx<30?15:araProx>75?5:araProx>=5?8:0;
-  const wickR=upperW/range;
-  score+=wickR<0.2&&bodyR>=0.5?15:wickR<0.3&&bodyR>=0.4?10:wickR<0.4?6:0;
-  score+=marketCtx.regime==='bull'?10:marketCtx.regime==='neutral'?5:2;
+  // Layer 3 — ARA Proximity (0-15)
+  const araLimit=price<=200?25:35;
+  const araProx=(chg/araLimit)*100;
+  score+=araProx>=30&&araProx<=75?15:araProx>=15&&araProx<30?10:araProx>75?3:araProx>=5?6:0;
+  // Layer 4 — Candle Structure (0-10)
+  score+=wickR<0.2&&bodyR>=0.5?10:wickR<0.3&&bodyR>=0.4?7:wickR<0.4?4:0;
+  // [V3] Layer 5 — Consecutive Up Days (0-18)
+  const klines = await fetchKlineHistory(ticker);
+  const consecUp = calcConsecutiveDays(klines, 'up');
+  score+=consecUp>=3?18:consecUp>=2?12:consecUp>=1?6:0;
+  // [V3] Layer 6 — Sector Momentum (0-12)
+  const sec = getSectorScore(ticker);
+  score+=sec.hot?12:sec.score>=50?6:2;
+  // Layer 7 — Market Context (0-8)
+  score+=marketCtx.regime==='bull'?8:marketCtx.regime==='neutral'?4:1;
+  // Layer 8 — Harga murah bonus (0-5)
   score+=price<=100?5:price<=200?4:price<=500?2:1;
   score=Math.max(0,Math.min(100,score));
+  // Label — threshold lebih ketat dari v2
   let label,reason;
-  if(score>=75&&chg>=10){label='ara_candidate';reason=`🦍 ARA ${chg.toFixed(1)}% · Vol ${volR.toFixed(1)}x · Score ${score}`;}
-  else if(score>=60&&chg>=5){label='early_pump';reason=`🚀 Pump ${chg.toFixed(1)}% · Vol ${volR.toFixed(1)}x · Score ${score}`;}
-  else if(score>=45){label='gorila_watch';reason=`👀 Watch ${chg.toFixed(1)}% · Vol ${volR.toFixed(1)}x`;}
-  else return null;
-  const sl=Math.round(price*0.93/10)*10,tp1=Math.round(price*1.10/10)*10;
+  if (score>=80&&chg>=10) {
+    label='ara_candidate';
+    reason=`🦍 ARA ${chg.toFixed(1)}% · Vol ${volR.toFixed(1)}x · ${consecUp}d up · Score ${score}`;
+  } else if (score>=65&&chg>=5) {
+    label='early_pump';
+    reason=`🚀 Pump ${chg.toFixed(1)}% · Vol ${volR.toFixed(1)}x · Score ${score}`;
+  } else if (score>=45) {
+    label='gorila_watch';
+    reason=`👀 ${chg.toFixed(1)}% · Vol ${volR.toFixed(1)}x · Score ${score}`;
+  } else return null;
+  const sl=Math.round(price*0.93/10)*10;
+  const tp1=Math.round(price*1.10/10)*10;
   const tp2=Math.round(price*(1+araLimit/100*0.8)/10)*10;
-  return{score,label,reason,chg,volR,price,sl,tp1,tp2,araProximity:Math.round(araProx),isNearARA:araProx>=60};
+  return {score,label,reason,chg,volR,price,sl,tp1,tp2,
+    araProximity:Math.round(araProx),isNearARA:araProx>=60,
+    consecutiveUp:consecUp,sectorHot:sec.hot};
+}
+function calcGorilaScore(d,ticker){
 }
 
-// ── RECOVERY SCORING ENGINE ──
-function calcRecoveryScore(d,ticker){
-  if(!d||!d.ld||d.ld<=0)return null;
+// ── RECOVERY SCORING ENGINE V3 ──
+async function calcRecoveryScoreV3(d, ticker) {
+  if (!d||!d.ld||d.ld<=0) return null;
   const price=d.ld,open=d.o||price,high=d.h||price,low=d.lo||price,prev=d.pc||price;
   const chg=d.chp||0,vol=d.v||0,avgVol=d.avol||vol||1,volR=avgVol>0?vol/avgVol:1;
   const body=Math.abs(price-open),range=high-low||1;
   const upperW=high-Math.max(price,open),lowerW=Math.min(price,open)-low;
-  if(chg<-3)return null;
-  if(vol<500000)return null;
+  const lwR=lowerW/range,bodyR=body/range;
+  // Hard filter
+  if (chg<-3) return null;
+  if (vol<500000) return null;
   let score=0;
+  // Layer 1 — RSI (0-20)
   const rsiProxy=d.rsi||50;
   score+=rsiProxy<=25?20:rsiProxy<=30?17:rsiProxy<=35?13:rsiProxy<=40?8:3;
-  const lwR=lowerW/range,uwR=upperW/range,bodyR=body/range;
-  const isHammer=lwR>=0.55&&uwR<0.2,isDoji=bodyR<0.15&&lwR>=0.4,isBull=chg>=1&&price>open&&bodyR>=0.5;
-  score+=isHammer?25:isBull&&chg>=2?22:isBull?16:isDoji?14:chg>=1?8:chg>=0?4:0;
-  score+=volR>=2.5&&chg>=1?20:volR>=1.5&&chg>=1?15:volR>=1.2&&chg>=0.5?10:volR>=1?5:0;
-  score+=lwR>=0.4&&chg>=1?20:lwR>=0.3&&chg>=0.5?14:lwR>=0.2?8:3;
+  // Layer 2 — Reversal Candle (0-22)
+  const isHammer=lwR>=0.55&&(upperW/range)<0.2;
+  const isDoji=bodyR<0.15&&lwR>=0.4;
+  const isBull=chg>=1&&price>open&&bodyR>=0.5;
+  score+=isHammer?22:isBull&&chg>=2?19:isBull?14:isDoji?12:chg>=1?7:chg>=0?3:0;
+  // Layer 3 — Volume Pattern (0-18)
+  score+=volR>=2.5&&chg>=1?18:volR>=1.5&&chg>=1?13:volR>=1.2&&chg>=0.5?9:volR>=1?4:0;
+  // Layer 4 — Support Bounce (0-15)
+  score+=lwR>=0.4&&chg>=1?15:lwR>=0.3&&chg>=0.5?10:lwR>=0.2?6:2;
+  // [V3] Layer 5 — Consecutive Down Days (0-15)
+  // Makin banyak turun = makin oversold = reversal lebih kuat
+  const klines = await fetchKlineHistory(ticker);
+  const consecDown = calcConsecutiveDays(klines, 'down');
+  score+=consecDown>=5?15:consecDown>=3?10:consecDown>=2?5:0;
+  // [V3] Layer 6 — Wyckoff Spring (0-10)
   const isSpring=low<(prev*0.99)&&price>prev;
-  score+=isSpring&&volR>=1.5?10:isSpring?6:chg>=1.5?4:0;
+  score+=isSpring&&volR>=1.5?10:isSpring?6:chg>=1.5?3:0;
+  // [V3] Layer 7 — Sector Context (0-8)
+  const sec=getSectorScore(ticker);
+  score+=sec.hot?8:sec.score>=50?4:1;
+  // Layer 8 — Market (0-5)
   score+=marketCtx.regime==='bull'?5:marketCtx.regime==='neutral'?3:0;
   score=Math.max(0,Math.min(100,score));
+  // Label — threshold lebih ketat
   let label,reason;
-  if(score>=72){label='reversal_aplus';reason=`🔄 Reversal A+ · ${isHammer?'Hammer':'Bullish'} · Vol ${volR.toFixed(1)}x · Score ${score}`;}
-  else if(score>=55){label='reversal_b';reason=`🔄 Reversal B · Vol ${volR.toFixed(1)}x · Score ${score}`;}
-  else if(score>=40){label='reversal_watch';reason=`👀 Watch · ${chg>=0?'+':''}${chg.toFixed(1)}% · Score ${score}`;}
-  else return null;
-  const sl=Math.round(low*0.98/10)*10,tp1=Math.round(price*1.05/10)*10,tp2=Math.round(price*1.10/10)*10;
-  return{score,label,reason,chg,volR,price,sl,tp1,tp2,wyckoffSpring:isSpring,isOversold:rsiProxy<=35};
+  if (score>=72) {
+    label='reversal_aplus';
+    reason=`🔄 A+ · ${isHammer?'Hammer':isBull?'Bullish':'Doji'} · ${consecDown}d turun · Vol ${volR.toFixed(1)}x · Score ${score}`;
+  } else if (score>=55) {
+    label='reversal_b';
+    reason=`🔄 B · ${consecDown}d turun · Vol ${volR.toFixed(1)}x · Score ${score}`;
+  } else if (score>=40) {
+    label='reversal_watch';
+    reason=`👀 Watch · ${chg>=0?'+':''}${chg.toFixed(1)}% · Score ${score}`;
+  } else return null;
+  const sl=Math.round(low*0.98/10)*10;
+  const tp1=Math.round(price*1.05/10)*10;
+  const tp2=Math.round(price*1.10/10)*10;
+  return {score,label,reason,chg,volR,price,sl,tp1,tp2,
+    wyckoffSpring:isSpring,isOversold:rsiProxy<=35,
+    consecutiveDown:consecDown,sectorHot:sec.hot};
+}
+function calcRecoveryScore(d,ticker){
 }
 
 // Update layer data dari ALL_STOCKS
@@ -2637,19 +2734,44 @@ layerData.core = ALL_STOCKS.filter(s =>
     })
     .sort((a,b) => b.score - a.score);
 
-  layerData.gorila = ALL_STOCKS
-    .filter(s => ROTATION_POOL.gorila.includes(s.ticker) && hasPrice(s) && s.price <= 2000)
-    .map(s => {
-      const d={ld:s.price,o:s.open||s.price,h:s.high||s.price*1.03,lo:s.low||s.price*0.97,
-        pc:s.prevClose||s.price/(1+(s.chg||0)/100),chp:s.chg||0,
-        v:s.vol||0,avol:(s.vol||0)/(s.volRatio||1)||1,vwap:s.vwap||s.price};
-      const pro=calcGorilaScore(d,s.ticker);
-      if(!pro)return null;
-      return{...s,...pro};
-    })
-    .filter(Boolean)
-    .sort((a,b) => b.score - a.score)
-    .slice(0,15);
+// V3 — async scoring dengan kline history
+  const gorilaPool = ALL_STOCKS.filter(s =>
+    ROTATION_POOL.gorila.includes(s.ticker) && hasPrice(s) && s.price <= 2000
+  );
+  Promise.all(gorilaPool.map(async s => {
+    const d={ld:s.price,o:s.open||s.price,h:s.high||s.price*1.03,lo:s.low||s.price*0.97,
+      pc:s.prevClose||s.price/(1+(s.chg||0)/100),chp:s.chg||0,
+      v:s.vol||0,avol:(s.vol||0)/(s.volRatio||1)||1,vwap:s.vwap||s.price};
+    const pro = await calcGorilaScoreV3(d, s.ticker);
+    if (!pro) return null;
+    return {...s,...pro};
+  })).then(results => {
+    layerData.gorila = results.filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,15);
+    document.getElementById('cnt-gorila').textContent = layerData.gorila.length;
+    renderLayerBanner();
+    if (activeLayer==='gorila') renderStockListByLayer();
+  });
+
+  const recoveryPool = ALL_STOCKS.filter(s =>
+    ROTATION_POOL.recovery.includes(s.ticker) && hasPrice(s)
+  );
+  Promise.all(recoveryPool.map(async s => {
+    const d={ld:s.price,o:s.open||s.price,h:s.high||s.price*1.02,lo:s.low||s.price*0.98,
+      pc:s.prevClose||s.price/(1+(s.chg||0)/100),chp:s.chg||0,
+      v:s.vol||0,avol:(s.vol||0)/(s.volRatio||1)||1,rsi:s.rsi||50};
+    const pro = await calcRecoveryScoreV3(d, s.ticker);
+    if (!pro) return null;
+    return {...s,...pro};
+  })).then(results => {
+    layerData.recovery = results.filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,15);
+    document.getElementById('cnt-recovery').textContent = layerData.recovery.length;
+    renderLayerBanner();
+    if (activeLayer==='recovery') renderStockListByLayer();
+  });
+
+  // Placeholder sementara scoring async berjalan
+  layerData.gorila = layerData.gorila || [];
+  layerData.recovery = layerData.recovery || [];
 
   layerData.recovery = ALL_STOCKS
     .filter(s => ROTATION_POOL.recovery.includes(s.ticker) && hasPrice(s))
