@@ -1604,15 +1604,7 @@ async function fetchProScanner() {
 // SCANNER
 // ════════════════════════════════════════════════════
 function renderScanner(){
-function renderScanner(){
-  // Hanya tampilkan saham yang sudah punya data real (price > 0 dan bukan default)
   const realStocks = ALL_STOCKS.filter(s => s.price > 0 && s.chg !== 0);
-  let stocks = realStocks.length > 0 ? realStocks : ALL_STOCKS.slice(0, 6);
-  if(activeFilter==='ai')stocks=realStocks.filter(s=>s.label==='ai');
-  else if(activeFilter==='ab')stocks=realStocks.filter(s=>s.label==='ab');
-  else if(activeFilter==='b')stocks=realStocks.filter(s=>s.label==='b');
-  else if(activeFilter==='avoid')stocks=realStocks.filter(s=>s.label==='avoid');
-  // Kalau belum ada data sama sekali, tampilkan loading state
   if(realStocks.length === 0){
     document.getElementById('stockList').innerHTML=`
       <div style="padding:32px 14px;text-align:center">
@@ -1621,6 +1613,11 @@ function renderScanner(){
       </div>`;
     return;
   }
+  let stocks=realStocks;
+  if(activeFilter==='ai')stocks=realStocks.filter(s=>s.label==='ai');
+  else if(activeFilter==='ab')stocks=realStocks.filter(s=>s.label==='ab');
+  else if(activeFilter==='b')stocks=realStocks.filter(s=>s.label==='b');
+  else if(activeFilter==='avoid')stocks=realStocks.filter(s=>s.label==='avoid');
   const tagMap={'ai':['t-g','🔥 A+ Intraday'],'ab':['t-p','🌙 A+ BSJP'],'b':['t-y','⚠️ B Setup'],'avoid':['t-r','❌ Avoid']};
   const barCol={'ai':'var(--g)','ab':'var(--p)','b':'var(--y)','avoid':'var(--r)'};
   document.getElementById('stockList').innerHTML=stocks.map(s=>{
