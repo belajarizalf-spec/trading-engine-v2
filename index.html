@@ -2584,6 +2584,39 @@ function calcConsecutiveDays(klines, direction) {
   return count;
 }
 
+// ── Hitung RSI real dari kline data ──
+function calcRSI(klines, period=14) {
+  if (!klines || klines.length < period+1) return 50;
+  const sorted = [...klines].sort((a,b) => a.t - b.t);
+  const closes = sorted.map(k => k.c || k.close || 0).filter(v => v > 0);
+  if (closes.length < period+1) return 50;
+  let gains=0, losses=0;
+  for (let i=closes.length-period; i<closes.length; i++) {
+    const diff = closes[i] - closes[i-1];
+    if (diff > 0) gains += diff;
+    else losses += Math.abs(diff);
+  }
+  const avgGain = gains/period;
+  const avgLoss = losses/period;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain/avgLoss;
+  return Math.round(100 - (100/(1+rs)));
+}
+// ── Hitung MA5/MA20 dan deteksi Golden/Death Cross ──
+function calcMASignal(klines) {
+  if (!klines || klines.length < 20) return { ma5:0, ma20:0, crossover: 'none' };
+  const sorted = [...klines].sort((a,b) => a.t - b.t);
+  const closes = sorted.map(k => k.c || k.close || 0).filter(v => v > 0);
+  if (closes.length < 20) return { ma5:0, ma20:0, crossover: 'none' };
+  const ma5  = closes.slice(-5).reduce((a,b)=>a+b,0) / 5;
+  const ma20 = closes.slice(-20).reduce((a,b)=>a+b,0) / 20;
+  const prevMa5  = closes.length >= 6  ? closes.slice(-6,-1).reduce((a,b)=>a+b,0) / 5  : ma5;
+  const prevMa20 = closes.length >= 21 ? closes.slice(-21,-1).reduce((a,b)=>a+b,0) / 20 : ma20;
+  let crossover = 'none';
+  if (prevMa5 <= prevMa20 && ma5 > ma20) crossover = 'golden';
+  if (prevMa5 >= prevMa20 && ma5 < ma20) crossover = 'death';
+  return { ma5: Math.round(ma5), ma20: Math.round(ma20), crossover };
+}
 function getSectorScore(ticker) {
   // Cek sektor saham dari IDX_DATABASE + bandingkan ke SECTORS
   const db = IDX_DATABASE.find(s => s.ticker === ticker);
@@ -2631,7 +2664,11 @@ async function calcGorilaScoreV3(d,ticker){
   // Layer 4 — Candle Structure (0-10)
   score+=wickR<0.2&&bodyR>=0.5?10:wickR<0.3&&bodyR>=0.4?7:wickR<0.4?4:0;
   // [V3] Layer 5 — Consecutive Up Days (0-18)
+// [V3] Layer 4b — MA Crossover (0-12)
   const klines = await fetchKlineHistory(ticker);
+  const maSignal = calcMASignal(klines);
+  score+=maSignal.crossover==='golden'?12:maSignal.ma5>maSignal.ma20?6:0;
+  // [V3] Layer 5 — Consecutive Up Days (0-18)
   const consecUp = calcConsecutiveDays(klines, 'up');
   score+=consecUp>=3?18:consecUp>=2?12:consecUp>=1?6:0;
   // [V3] Layer 6 — Sector Momentum (0-12)
@@ -2676,8 +2713,11 @@ async function calcRecoveryScoreV3(d, ticker) {
   if (vol<500000) return null;
   let score=0;
   // Layer 1 — RSI (0-20)
-  const rsiProxy=d.rsi||50;
+  const klines = await fetchKlineHistory(ticker);
+  const rsiReal = calcRSI(klines, 14);
+  const rsiProxy = rsiReal || d.rsi || 50;
   score+=rsiProxy<=25?20:rsiProxy<=30?17:rsiProxy<=35?13:rsiProxy<=40?8:3;
+  if (rsiProxy<=20) score+=5; // Bonus oversold extreme
   // Layer 2 — Reversal Candle (0-22)
   const isHammer=lwR>=0.55&&(upperW/range)<0.2;
   const isDoji=bodyR<0.15&&lwR>=0.4;
@@ -2689,8 +2729,7 @@ async function calcRecoveryScoreV3(d, ticker) {
   score+=lwR>=0.4&&chg>=1?15:lwR>=0.3&&chg>=0.5?10:lwR>=0.2?6:2;
   // [V3] Layer 5 — Consecutive Down Days (0-15)
   // Makin banyak turun = makin oversold = reversal lebih kuat
-  const klines = await fetchKlineHistory(ticker);
-  const consecDown = calcConsecutiveDays(klines, 'down');
+const consecDown = calcConsecutiveDays(klines, 'down');
   score+=consecDown>=5?15:consecDown>=3?10:consecDown>=2?5:0;
   // [V3] Layer 6 — Wyckoff Spring (0-10)
   const isSpring=low<(prev*0.99)&&price>prev;
