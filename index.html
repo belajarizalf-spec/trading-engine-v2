@@ -1157,7 +1157,14 @@ const ALL_STOCKS = [
 ];
 
 const SECTORS=[{name:'Banking',score:88,trend:'up'},{name:'Technology',score:74,trend:'up'},{name:'Mining',score:65,trend:'nt'},{name:'Energy',score:58,trend:'nt'},{name:'Consumer',score:42,trend:'dn'},{name:'Telecom',score:38,trend:'dn'},{name:'Auto',score:30,trend:'dn'}];
-const GAPS=ALL_STOCKS.map(s=>({ticker:s.ticker,gap:s.gap,ok:s.gap<2&&s.gap>-1}));
+let GAPS=ALL_STOCKS.map(s=>({ticker:s.ticker,gap:s.gap||0,ok:(s.gap||0)<2&&(s.gap||0)>-1}));
+// Update GAPS setiap kali data masuk
+function updateGAPS(){
+  GAPS=ALL_STOCKS.filter(s=>s.price>0&&s.chg!==0).map(s=>({
+    ticker:s.ticker,gap:parseFloat((s.chg||0).toFixed(2)),
+    ok:(s.chg||0)<2&&(s.chg||0)>-1
+  }));
+}
 const EARNINGS=[
   {date:'22 Apr',ticker:'BBCA',event:'Laporan Keuangan Q1 2025',type:'LK',today:false},
   {date:'24 Apr',ticker:'GOTO',event:'Public Expose',type:'EXP',today:false},
@@ -2601,6 +2608,7 @@ stock.trap     = pro.trap;
 ALL_STOCKS.sort((a,b) => b.score - a.score);
     renderScanner();
     renderBreadth();
+    updateGAPS();
     updateLayerData();
     setApiStatus('ok', 0);
 
