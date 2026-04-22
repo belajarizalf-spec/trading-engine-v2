@@ -2212,15 +2212,19 @@ const REGION      = 'ID';
 
 // Pool saham per layer (bisa ditambah)
 const ROTATION_POOL = {
-  core: [],
+  core: [
+    'AKRA','PGAS','BNGA',
+  ],
   momentum: [
-    'BRPT','MEDC','AKRA','ARCI',
+    'BRPT','SSIA','ARCI','HEAL','IMPC',
+    'SMSM','MBSS','LSIP','DSNG','LPPF',
   ],
   gorila: [
-    'BRMS','ENRG','VKTR','NSSS','DATA',
+    'BUVA','NSSS','VKTR','FORE','SUPA',
+    'WBSA','SIPD','ASGR','MSIN','KEEN',
   ],
   recovery: [
-    'SSIA','BUVA','CBRE','TAPG','PNBN',
+    'BRMS','ENRG','BBTN','PNBN','SSMS','CBRE',
   ],
 };
 
@@ -2636,7 +2640,7 @@ function getSectorScore(ticker) {
 }
 
 // Ambil 1 saham berikutnya dari rotasi (1 layer per call)
-const layerOrder = ['momentum','gorila','recovery'];
+const layerOrder = ['core','momentum','gorila','recovery'];
 let layerCursor = 0;
 function getNextSingleTicker() {
   const layer = layerOrder[layerCursor % 4];
