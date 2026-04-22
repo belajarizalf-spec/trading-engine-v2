@@ -1604,7 +1604,15 @@ async function fetchProScanner() {
 // SCANNER
 // ════════════════════════════════════════════════════
 function renderScanner(){
-  const realStocks = ALL_STOCKS.filter(s => s.price > 0 && s.chg !== 0);
+const allPoolTickers = [
+    ...ROTATION_POOL.core,
+    ...ROTATION_POOL.momentum,
+    ...ROTATION_POOL.gorila,
+    ...ROTATION_POOL.recovery,
+  ];
+  const realStocks = ALL_STOCKS.filter(s =>
+    s.price > 0 && s.chg !== 0 && allPoolTickers.includes(s.ticker)
+  );
   if(realStocks.length === 0){
     document.getElementById('stockList').innerHTML=`
       <div style="padding:32px 14px;text-align:center">
@@ -2204,22 +2212,15 @@ const REGION      = 'ID';
 
 // Pool saham per layer (bisa ditambah)
 const ROTATION_POOL = {
-  core: [
-    'BBCA','ASII','AMRT',
-  ],
+  core: [],
   momentum: [
-    'BREN','AMMN','MDKA','ADRO','BYAN',
-    'ESSA','AKRA','NCKL','INCO','ELSA',
+    'BRPT','MEDC','AKRA','ARCI',
   ],
   gorila: [
-    'CUAN','BRMS','NICL','SMMT',
-    'DOID','ABMM','MCOL','MBSS',
-    'EDGE','DNET',
+    'BRMS','ENRG','VKTR','NSSS','DATA',
   ],
   recovery: [
-    'MNCN','SCMA','BIRD','CMPP',
-    'LPKR','MDLN','PNBN','BNGA',
-    'ARTO','BBYB',
+    'SSIA','BUVA','CBRE','TAPG','PNBN',
   ],
 };
 
