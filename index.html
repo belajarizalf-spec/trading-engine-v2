@@ -2337,6 +2337,12 @@ function updateMarketContext(ihsgChg) {
   marketCtx.regime = ihsgChg >= 0.5 ? 'bull'
                    : ihsgChg <= -1.0 ? 'bear'
                    : 'neutral';
+  // Multiplier untuk scoring
+  marketCtx.multiplier = ihsgChg >= 1.0 ? 1.15
+                       : ihsgChg >= 0.5 ? 1.08
+                       : ihsgChg <= -1.0 ? 0.70
+                       : ihsgChg <= -0.5 ? 0.85
+                       : 1.0;
 }
 
 function calcProScore(d, ticker) {
@@ -2422,10 +2428,12 @@ function calcProScore(d, ticker) {
   layers.vwap = vwapScore;
   score += vwapScore;
 
-  // Layer 5 — Anti-Trap Penalty (sudah di atas, tapi tambah soft penalty)
+// Layer 5 — Anti-Trap Penalty
+  const vwapExt = (price - vwap) / vwap * 100;
   const softTrap  = (upperW > body * 1.2 ? -5 : 0)
                   + (volR > 3 && chg < 0.5 ? -5 : 0)
-                  + (traps.lateExtended ? -8 : 0);
+                  + (traps.lateExtended ? -8 : 0)
+                  + (vwapExt > 3 ? -5 : 0);  // Extended dari VWAP → penalty
   layers.antitrap = softTrap;
   score += softTrap;
 
@@ -2444,7 +2452,8 @@ function calcProScore(d, ticker) {
   layers.timing = timingScore;
   score += timingScore;
 
-  // Final score
+// Final score + Market Multiplier
+  score = Math.round(score * (marketCtx.multiplier || 1.0));
   score = Math.max(0, Math.min(100, score));
 
   // ══════════════════════════════════════
@@ -2647,10 +2656,17 @@ async function calcGorilaScoreV3(d,ticker){
   const upperW=high-Math.max(price,open);
   const bodyR=body/range,wickR=upperW/range;
   // Hard filter
-  if (upperW>body*1.5&&upperW>range*0.35) return null;
+if (upperW>body*1.5&&upperW>range*0.35) return null;
   if (chg>=5&&price<(d.vwap||price*0.995)) return null;
   if (vol<1000000) return null;
-  if (chg<=0) return null;
+if (chg<=0) return null;
+  // Opening Trap — gorila jam 09:00-09:30 sering manipulasi
+  const hourNow = new Date().getHours();
+  const minNow  = new Date().getMinutes();
+  if (hourNow === 9 && minNow < 30 && chg >= 3) return null;
+  // [V3] VWAP Extension Filter
+  const vwapDist = d.vwap ? (price - d.vwap) / d.vwap * 100 : 0;
+  if (vwapDist > 5) return null;  // Sudah > 5% di atas VWAP → reject gorila
   let score=0;
   // Layer 1 — Momentum (0-25)
   score+=chg>=15?25:chg>=10?22:chg>=7?18:chg>=5?14:chg>=3?8:0;
@@ -2678,6 +2694,7 @@ async function calcGorilaScoreV3(d,ticker){
   score+=marketCtx.regime==='bull'?8:marketCtx.regime==='neutral'?4:1;
   // Layer 8 — Harga murah bonus (0-5)
   score+=price<=100?5:price<=200?4:price<=500?2:1;
+score=Math.round(score*(marketCtx.multiplier||1.0));
   score=Math.max(0,Math.min(100,score));
   // Label — threshold lebih ketat dari v2
   let label,reason;
@@ -2739,6 +2756,7 @@ const consecDown = calcConsecutiveDays(klines, 'down');
   score+=sec.hot?8:sec.score>=50?4:1;
   // Layer 8 — Market (0-5)
   score+=marketCtx.regime==='bull'?5:marketCtx.regime==='neutral'?3:0;
+score=Math.round(score*(marketCtx.multiplier||1.0));
   score=Math.max(0,Math.min(100,score));
   // Label — threshold lebih ketat
   let label,reason;
