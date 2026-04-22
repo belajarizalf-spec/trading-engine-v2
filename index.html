@@ -2594,7 +2594,7 @@ function getSectorScore(ticker) {
 }
 
 // Ambil 1 saham berikutnya dari rotasi (1 layer per call)
-const layerOrder = ['core','momentum','gorila','recovery'];
+const layerOrder = ['momentum','gorila','recovery'];
 let layerCursor = 0;
 function getNextSingleTicker() {
   const layer = layerOrder[layerCursor % 4];
@@ -3033,11 +3033,22 @@ window.addEventListener('load',async()=>{
         ...ROTATION_POOL.gorila,
         ...ROTATION_POOL.recovery,
       ];
-      const uniqueTickers = [...new Set(allPoolTickers)];
+const uniqueTickers = [...new Set(allPoolTickers)];
       uniqueTickers.forEach(ticker => {
         if (!ALL_STOCKS.find(s => s.ticker === ticker)) {
           ALL_STOCKS.push(makeDefaultStock(ticker, ticker, 'IDX'));
         }
+      });
+      // Langsung queue semua saham gorila & recovery duluan
+      const priorityTickers = [
+        ...ROTATION_POOL.gorila,
+        ...ROTATION_POOL.recovery,
+        ...ROTATION_POOL.momentum,
+      ];
+      priorityTickers.forEach((ticker, i) => {
+        setTimeout(() => addToQueue(
+          () => fetchRotationBatch(), `Init-${ticker}`
+        ), i * 500);
       });
       console.log('Total stocks loaded:', ALL_STOCKS.length);
     } catch(e) { console.warn('Pool init:', e); }
