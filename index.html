@@ -1394,8 +1394,8 @@ function makeDefaultStock(ticker,name,sector){
     trap:{upperWick:false,fakeBreak:false,volumeNoMove:false,gapDump:false,rsiExtreme:false},
     patterns:[{name:'Loading...',desc:'Memuat data dari ITICK',signal:'NEUTRAL',icon:'⏳'}],
     sr:[{type:'R1',level:0,strength:2,label:'Resistance'},{type:'S1',level:0,strength:3,label:'Support'}],
-    jam:[{time:'09:45–10:30',act:'Entry window',wr:'75%',hot:true}],
-    vol:{regime:'NORMAL',vix:12,sub:'Normal',color:'g'},
+    jam:[{time:'09:45–10:30',act:'Entry window',wr:'75%',hot:true},{time:'14:30–15:30',act:'BSJP window',wr:'68%',hot:false}],
+    vol:{regime:'NORMAL',vix:12,sub:'Volatilitas normal',color:'g'},
     confluence:[['Data','Memuat...',false]],scores:{Score:50},
     correlation:[],corrSector:sector||'IDX',
     ff:{asingBuy:0,asingJual:0,domBuy:0,domJual:0,netAsing:'N/A',netDom:'N/A',pctAsing:50},
@@ -2536,13 +2536,57 @@ stock.price     = d.ld;
     stock.label    = pro.label;
     stock.timing   = pro.timing;
     stock.conf     = pro.conf;
-    stock.sr       = pro.sr;
+// SR dengan label lengkap
+    stock.sr = [
+      {type:'R2',level:Math.round((stock.high||stock.price*1.04)/50)*50,strength:2,label:'Resistance Kuat'},
+      {type:'R1',level:Math.round((stock.high||stock.price*1.02)/50)*50,strength:3,label:'Resistance Minor'},
+      {type:'S1',level:Math.round((stock.low||stock.price*0.98)/50)*50,strength:4,label:'Support Kuat'},
+      {type:'S2',level:Math.round((stock.low||stock.price*0.96)/50)*50,strength:3,label:'Support Minor'},
+    ];
     stock.sl       = pro.sl;
     stock.tp1      = pro.tp1;
     stock.tp2      = pro.tp2;
     stock.rr       = pro.rr;
-    stock.trap     = pro.trap;
+stock.trap     = pro.trap;
     stock.reason   = pro.reason;
+
+    // Update Volatility Regime dari data real
+    const vix = Math.abs(pro.chg) * 3.5 + (pro.volR > 2 ? 8 : 4);
+    stock.vol = {
+      regime: vix >= 25 ? 'HIGH' : vix >= 15 ? 'NORMAL' : 'LOW',
+      vix: parseFloat(vix.toFixed(1)),
+      sub: vix >= 25 ? 'Volatilitas tinggi · Perlebar SL' : vix >= 15 ? 'Volatilitas sehat · Setup aman' : 'Volatilitas rendah · Aman',
+      color: vix >= 25 ? 'r' : vix >= 15 ? 'g' : 'g',
+    };
+
+    // Update MTF dari chg% sebagai proxy
+    const mtfDir = pro.chg >= 1 ? 'bull' : pro.chg <= -1 ? 'bear' : 'neut';
+    const mtfDirD = pro.chg >= 0.5 ? 'bull' : pro.chg <= -0.5 ? 'bear' : 'neut';
+    stock.mtf = { D: mtfDirD, '1H': mtfDir, '15M': mtfDir };
+
+    // Update Pattern dari candle data
+    const body  = Math.abs(d.ld - (d.o||d.ld));
+    const range = ((d.h||d.ld) - (d.lo||d.ld)) || 1;
+    const uWick = (d.h||d.ld) - Math.max(d.ld, d.o||d.ld);
+    const lWick = Math.min(d.ld, d.o||d.ld) - (d.lo||d.ld);
+    let patterns = [];
+    if (lWick/range > 0.5 && uWick/range < 0.2) patterns.push({name:'Hammer',desc:'Lower wick panjang — potensi reversal bullish',signal:'BULLISH',icon:'🔨'});
+    if (body/range > 0.7 && pro.chg > 0) patterns.push({name:'Bullish Marubozu',desc:'Candle penuh tanpa wick — momentum kuat',signal:'BULLISH',icon:'🟢'});
+    if (body/range > 0.7 && pro.chg < 0) patterns.push({name:'Bearish Marubozu',desc:'Candle penuh merah — tekanan jual kuat',signal:'BEARISH',icon:'🔴'});
+    if (body/range < 0.15) patterns.push({name:'Doji',desc:'Ketidakpastian — tunggu konfirmasi arah',signal:'NEUTRAL',icon:'⚡'});
+    if (uWick/range > 0.4 && body/range < 0.3) patterns.push({name:'Shooting Star',desc:'Upper wick panjang — sinyal rejection',signal:'BEARISH',icon:'⭐'});
+    if (pro.volR >= 2 && pro.chg > 1) patterns.push({name:'Volume Breakout',desc:`Volume ${pro.volR.toFixed(1)}x saat harga naik`,signal:'BULLISH',icon:'📊'});
+    if (!patterns.length) patterns.push({name:'No Pattern',desc:'Tidak ada pola signifikan hari ini',signal:'NEUTRAL',icon:'➖'});
+    stock.patterns = patterns;
+
+    // Update Auction price
+    stock.auctionPrice = Math.round(d.ld * (1 - (pro.chg||0)/100 * 0.3));
+    stock.auctionDiff  = parseFloat(((d.ld - stock.auctionPrice) / stock.auctionPrice * 100).toFixed(2));
+
+    // Update entry/tp/sl string untuk display
+    stock.entry = `${Math.round(d.ld*0.99/10)*10}–${Math.round(d.ld/10)*10}`;
+    stock.tp    = `${pro.tp1?.toLocaleString('id')||'–'} (+3%)`;
+    stock.lot   = '~' + Math.round(10000000 / (d.ld * 100)) + ' lot';
 
     if (selected && selected.ticker === ticker) selected = stock;
 
