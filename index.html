@@ -2220,42 +2220,25 @@ function applyQuoteToStock(stock, d) {
 let idxDailyData = { foreignFlow:[], gainer:[], loser:[], lastFetch:0 };
 
 async function fetchIDXDaily() {
-  if (Date.now()-idxDailyData.lastFetch<3600000) return;
-  try {
-    const ff = await fetch(`${API}?endpoint=idx_foreign`);
-    const ffj = await ff.json();
-    if (ffj.code===0 && ffj.data?.data) {
-      idxDailyData.foreignFlow = ffj.data.data.slice(0,10).map(s=>({
-        ticker:s.StockCode||'', name:s.Name||s.StockCode||'',
-        foreignBuy:s.ForeignBuy||0, foreignSell:s.ForeignSell||0,
-        netForeign:(s.ForeignBuy||0)-(s.ForeignSell||0), chg:s.PercentChange||0,
-      }));
-    }
-    const gn = await fetch(`${API}?endpoint=idx_gainer`);
-    const gnj = await gn.json();
-    if (gnj.code===0 && gnj.data?.data) {
-      idxDailyData.gainer = gnj.data.data.slice(0,10).map(s=>({
-        ticker:s.StockCode||'', name:s.Name||s.StockCode||'',
-        chg:s.PercentChange||0, price:s.LastPrice||0,
-      }));
-    }
-    const ls = await fetch(`${API}?endpoint=idx_loser`);
-    const lsj = await ls.json();
-    if (lsj.code===0 && lsj.data?.data) {
-      idxDailyData.loser = lsj.data.data.slice(0,10).map(s=>({
-        ticker:s.StockCode||'', name:s.Name||s.StockCode||'',
-        chg:s.PercentChange||0, price:s.LastPrice||0,
-      }));
-    }
-    idxDailyData.lastFetch = Date.now();
-    updateSectorFromIDX();
-    renderIDXIntel();
-    const dot = document.querySelector('#idxApiRow .api-dot');
-    if (dot) dot.style.cssText='background:var(--green);box-shadow:0 0 6px var(--green)';
-    const tag = document.getElementById('sectorUpdateTag');
-    if (tag) tag.textContent = new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
-    console.log('✅ IDX daily loaded');
-  } catch(e) { console.warn('IDX daily error:',e); }
+  // Gunakan data ITICK dari ALL_STOCKS (IDX blokir server-side request)
+  const real = ALL_STOCKS.filter(s => s.price > 0 && s.chg !== 0);
+  if (!real.length) {
+    setTimeout(() => fetchIDXDaily(), 30000);
+    return;
+  }
+  idxDailyData.gainer = [...real]
+    .sort((a,b) => b.chg - a.chg).slice(0,10)
+    .map(s => ({ ticker:s.ticker, name:s.name, chg:s.chg, price:s.price }));
+  idxDailyData.loser = [...real]
+    .sort((a,b) => a.chg - b.chg).slice(0,10)
+    .map(s => ({ ticker:s.ticker, name:s.name, chg:s.chg, price:s.price }));
+  idxDailyData.foreignFlow = [];
+  idxDailyData.lastFetch = Date.now();
+  updateSectorFromIDX();
+  renderIDXIntel();
+  const tag = document.getElementById('sectorUpdateTag');
+  if (tag) tag.textContent = new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+  console.log(`✅ Intel: ${idxDailyData.gainer.length} gainer, ${idxDailyData.loser.length} loser`);
 }
 
 async function fetchYahooHistory(ticker) {
@@ -2507,6 +2490,8 @@ window.addEventListener('load', async () => {
     // IDX daily — fetch saat load + setiap 1 jam
     setTimeout(() => fetchIDXDaily(), 3000);
     setInterval(() => fetchIDXDaily(), 3600000);
+    // Update intel setiap kali scan selesai
+    setInterval(() => fetchIDXDaily(), 60000);
 
     // Init sector list
     renderSectorList();
