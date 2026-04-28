@@ -950,6 +950,58 @@ body.pro-mode .beginner-only{display:none}
     <div style="height:8px"></div>
   </div>
 
+  <!-- ══════════ INTEL PAGE ══════════ -->
+  <div class="page" id="page-intel">
+
+    <div class="sec-lbl">Foreign Flow Harian</div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--t4);margin-bottom:6px;padding-left:2px">
+      Net Buy/Sell Asing · Update jam 16:00 · Sumber: IDX
+    </div>
+    <div id="ffList">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;text-align:center;margin-bottom:10px">
+        <div style="font-size:22px;margin-bottom:8px;opacity:.4">📡</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--t3)">Memuat data IDX...</div>
+      </div>
+    </div>
+
+    <div class="sec-lbl" style="margin-top:4px">Top Gainer Hari Ini</div>
+    <div class="card" style="overflow:hidden;margin-bottom:10px" id="gainerList">
+      <div style="padding:14px;font-family:var(--mono);font-size:10px;color:var(--t4)">Memuat...</div>
+    </div>
+
+    <div class="sec-lbl">Top Loser Hari Ini</div>
+    <div class="card" style="overflow:hidden;margin-bottom:10px" id="loserList">
+      <div style="padding:14px;font-family:var(--mono);font-size:10px;color:var(--t4)">Memuat...</div>
+    </div>
+
+    <div class="sec-lbl">Sector Momentum</div>
+    <div class="card" style="overflow:hidden;margin-bottom:10px">
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:var(--mono);font-size:9px;color:var(--t4);letter-spacing:.1em">RANKING SEKTOR · AUTO UPDATE</span>
+        <span class="tag t-p" id="sectorUpdateTag">--</span>
+      </div>
+      <div style="padding:10px"><div class="sector-list" id="sectorList"></div></div>
+    </div>
+
+    <div class="sec-lbl">Status Koneksi</div>
+    <div class="api-row">
+      <div class="api-dot" style="background:var(--green);box-shadow:0 0 6px var(--green)"></div>
+      <div class="api-name">ITICK API · Real-time</div>
+      <div class="api-ping" id="apiPing">--ms</div>
+    </div>
+    <div class="api-row" id="idxApiRow">
+      <div class="api-dot" style="background:var(--yellow)"></div>
+      <div class="api-name">IDX.co.id · Harian</div>
+      <div class="api-ping">Delayed</div>
+    </div>
+    <div class="api-row">
+      <div class="api-dot" style="background:var(--cyan)"></div>
+      <div class="api-name">Yahoo Finance · Historical</div>
+      <div class="api-ping">90d</div>
+    </div>
+    <div style="height:8px"></div>
+  </div>
+
   <!-- ══════════ JOURNAL PAGE ══════════ -->
   <div class="page" id="page-journal">
     <div class="sec-lbl">P&L Summary</div>
@@ -1000,6 +1052,10 @@ body.pro-mode .beginner-only{display:none}
     <button class="bnav-btn" onclick="goPage('action',this)" id="nav-action">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
       <span class="bnav-lbl">ACTION</span>
+    </button>
+    <button class="bnav-btn" onclick="goPage('intel',this)" id="nav-intel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span class="bnav-lbl">INTEL</span>
     </button>
     <button class="bnav-btn" onclick="goPage('journal',this)" id="nav-journal">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -1083,7 +1139,7 @@ const IDX_DATABASE = [
 const VERCEL_URL  = 'https://trading-engine-v2.vercel.app';
 const API         = VERCEL_URL + '/api/proxy';
 const IS_VERCEL   = true;
-const ITICK_TOKEN = 'ee7dcc3e68eb4f55b411a073c1ec9fbb6b6479b0bb9543d285322518a6c85e55';
+const ITICK_TOKEN = 'NA';
 const REGION      = 'ID';
 const TELEGRAM_BOT_TOKEN = '8696791789:AAFrhIV5iTCsm9412ZnBXxXUiCDG_4rs4dc';
 const TELEGRAM_CHAT_ID   = '2019220225';
@@ -2159,6 +2215,152 @@ function applyQuoteToStock(stock, d) {
 }
 
 // ════════════════════════════════════════════════════
+// IDX DAILY DATA
+// ════════════════════════════════════════════════════
+let idxDailyData = { foreignFlow:[], gainer:[], loser:[], lastFetch:0 };
+
+async function fetchIDXDaily() {
+  if (Date.now()-idxDailyData.lastFetch<3600000) return;
+  try {
+    const ff = await fetch(`${API}?endpoint=idx_foreign`);
+    const ffj = await ff.json();
+    if (ffj.code===0 && ffj.data?.data) {
+      idxDailyData.foreignFlow = ffj.data.data.slice(0,10).map(s=>({
+        ticker:s.StockCode||'', name:s.Name||s.StockCode||'',
+        foreignBuy:s.ForeignBuy||0, foreignSell:s.ForeignSell||0,
+        netForeign:(s.ForeignBuy||0)-(s.ForeignSell||0), chg:s.PercentChange||0,
+      }));
+    }
+    const gn = await fetch(`${API}?endpoint=idx_gainer`);
+    const gnj = await gn.json();
+    if (gnj.code===0 && gnj.data?.data) {
+      idxDailyData.gainer = gnj.data.data.slice(0,10).map(s=>({
+        ticker:s.StockCode||'', name:s.Name||s.StockCode||'',
+        chg:s.PercentChange||0, price:s.LastPrice||0,
+      }));
+    }
+    const ls = await fetch(`${API}?endpoint=idx_loser`);
+    const lsj = await ls.json();
+    if (lsj.code===0 && lsj.data?.data) {
+      idxDailyData.loser = lsj.data.data.slice(0,10).map(s=>({
+        ticker:s.StockCode||'', name:s.Name||s.StockCode||'',
+        chg:s.PercentChange||0, price:s.LastPrice||0,
+      }));
+    }
+    idxDailyData.lastFetch = Date.now();
+    updateSectorFromIDX();
+    renderIDXIntel();
+    const dot = document.querySelector('#idxApiRow .api-dot');
+    if (dot) dot.style.cssText='background:var(--green);box-shadow:0 0 6px var(--green)';
+    const tag = document.getElementById('sectorUpdateTag');
+    if (tag) tag.textContent = new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+    console.log('✅ IDX daily loaded');
+  } catch(e) { console.warn('IDX daily error:',e); }
+}
+
+async function fetchYahooHistory(ticker) {
+  try {
+    const r = await fetch(`${API}?endpoint=yahoo_history&code=${ticker}`);
+    const j = await r.json();
+    if (j.code!==0||!j.data?.chart?.result?.[0]) return null;
+    const result=j.data.chart.result[0];
+    const ts=result.timestamp||[], closes=result.indicators?.quote?.[0]?.close||[];
+    return ts.map((t,i)=>({date:new Date(t*1000).toLocaleDateString('id-ID'),close:closes[i]||0})).filter(d=>d.close>0);
+  } catch(e) { return null; }
+}
+
+function updateSectorFromIDX() {
+  const sectorMap = {
+    'BBCA':'Banking','BBRI':'Banking','BMRI':'Banking','BBNI':'Banking','BNGA':'Banking','PNBN':'Banking','BBTN':'Banking',
+    'TLKM':'Telecom','GOTO':'Technology','ASGR':'Technology',
+    'ASII':'Auto','SMSM':'Auto',
+    'BRPT':'Energy','PGAS':'Energy','ENRG':'Energy','KEEN':'Energy',
+    'LSIP':'Agriculture','DSNG':'Agriculture','SSMS':'Agriculture','NSSS':'Agriculture','SIPD':'Agriculture',
+    'ARCI':'Mining','BRMS':'Mining','HEAL':'Healthcare',
+    'LPPF':'Trade','AKRA':'Trade','MBSS':'Trade','WBSA':'Trade',
+    'FORE':'Consumer','SUPA':'Consumer','BUVA':'Consumer',
+    'SSIA':'Property','CBRE':'Property','IMPC':'Industry','VKTR':'Industry',
+  };
+  const sectorChg = {};
+  [...idxDailyData.gainer,...idxDailyData.loser].forEach(s=>{
+    const sec=sectorMap[s.ticker]||'Other';
+    if(!sectorChg[sec]) sectorChg[sec]=[];
+    sectorChg[sec].push(s.chg);
+  });
+  Object.keys(sectorChg).forEach(sec=>{
+    const avg=sectorChg[sec].reduce((a,b)=>a+b,0)/sectorChg[sec].length;
+    const idx=SECTORS.findIndex(s=>s.name===sec);
+    const score=Math.round(50+avg*8);
+    if(idx>=0) SECTORS[idx].score=Math.max(0,Math.min(100,score));
+  });
+  renderSectorList();
+}
+
+function renderSectorList() {
+  const el=document.getElementById('sectorList');
+  if(!el) return;
+  const sorted=[...SECTORS].sort((a,b)=>b.score-a.score);
+  el.innerHTML=sorted.map(s=>{
+    const c=s.score>=65?'var(--green)':s.score>=45?'var(--yellow)':'var(--red)';
+    const lblC=s.score>=65?'t-g':s.score>=45?'t-y':'t-r';
+    const lbl=s.score>=65?'HOT':s.score>=45?'NETRAL':'LEMAH';
+    return `<div class="sector-row">
+      <div class="sec-name">${s.name}</div>
+      <div class="sec-bar"><div class="sec-fill" style="width:${s.score}%;background:${c}"></div></div>
+      <div class="sec-val" style="color:${c}">${s.score}</div>
+      <div class="tag ${lblC}">${lbl}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderIDXIntel() {
+  const ffEl=document.getElementById('ffList');
+  if (ffEl) {
+    if (!idxDailyData.foreignFlow.length) {
+      ffEl.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;text-align:center;margin-bottom:10px">
+        <div style="font-size:22px;margin-bottom:8px;opacity:.4">📡</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--t3)">Data tersedia setelah jam 16:00 WIB</div>
+        <div style="font-size:10px;color:var(--t4);margin-top:4px">Sumber: IDX.co.id · Delayed harian</div>
+      </div>`;
+    } else {
+      const rows=idxDailyData.foreignFlow.map(s=>{
+        const net=s.netForeign, netM=(net/1e9).toFixed(1);
+        const cc=net>=0?'up':'dn', netStr=net>=0?`+${netM}M`:netM+'M';
+        return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer" onclick="selectFromSearch('${s.ticker}')">
+          <div style="width:7px;height:7px;border-radius:50%;background:${net>=0?'var(--green)':'var(--red)'}"></div>
+          <div style="font-family:var(--mono);font-size:12px;font-weight:700;width:48px">${s.ticker}</div>
+          <div style="font-size:10px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</div>
+          <div style="font-family:var(--mono);font-size:11px;font-weight:700" class="${cc}">NET ${netStr}</div>
+          <div style="font-family:var(--mono);font-size:9px;margin-left:4px" class="${s.chg>=0?'up':'dn'}">${s.chg>=0?'+':''}${s.chg.toFixed(1)}%</div>
+        </div>`;
+      }).join('');
+      ffEl.innerHTML=`<div class="card" style="overflow:hidden;margin-bottom:10px">${rows}</div>`;
+    }
+  }
+  const gnEl=document.getElementById('gainerList');
+  if (gnEl && idxDailyData.gainer.length) {
+    gnEl.innerHTML=idxDailyData.gainer.map((s,i)=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer" onclick="selectFromSearch('${s.ticker}')">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--t4);width:16px">${i+1}</div>
+        <div style="font-family:var(--mono);font-size:12px;font-weight:700;width:48px">${s.ticker}</div>
+        <div style="font-size:10px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</div>
+        <div style="font-family:var(--mono);font-size:11px;font-weight:700" class="up">+${s.chg.toFixed(2)}%</div>
+      </div>`).join('');
+  }
+  const lsEl=document.getElementById('loserList');
+  if (lsEl && idxDailyData.loser.length) {
+    lsEl.innerHTML=idxDailyData.loser.map((s,i)=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer" onclick="selectFromSearch('${s.ticker}')">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--t4);width:16px">${i+1}</div>
+        <div style="font-family:var(--mono);font-size:12px;font-weight:700;width:48px">${s.ticker}</div>
+        <div style="font-size:10px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</div>
+        <div style="font-family:var(--mono);font-size:11px;font-weight:700" class="dn">${s.chg.toFixed(2)}%</div>
+      </div>`).join('');
+  }
+  renderSectorList();
+}
+
+// ════════════════════════════════════════════════════
 // ROTATION
 // ════════════════════════════════════════════════════
 let lastQuotaError = 0;
@@ -2301,6 +2503,13 @@ window.addEventListener('load', async () => {
     // Continuous
     setInterval(() => addToQueue(fetchRotationBatch), 60000);
     setInterval(() => addToQueue(fetchIHSG), 30000);
+
+    // IDX daily — fetch saat load + setiap 1 jam
+    setTimeout(() => fetchIDXDaily(), 3000);
+    setInterval(() => fetchIDXDaily(), 3600000);
+
+    // Init sector list
+    renderSectorList();
 
   }, 1800);
 });
