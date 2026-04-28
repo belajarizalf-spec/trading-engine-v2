@@ -1724,15 +1724,38 @@ function renderChart() {
   const ctx = document.getElementById('mainChart').getContext('2d');
   if (chart) { chart.destroy(); chart = null; }
   const s = selected || {price:100,vwap:99,ma20:98,chg:0};
-  const pts = 48;
-  let price = s.price * .96; const closes = [];
-  for (let i = 0; i < pts; i++) { price += (Math.random()-.43)*price*.009; closes.push(parseFloat(price.toFixed(0))); }
-  closes[pts-1] = s.price;
-  const labels = closes.map((_,i) => {const h=9+Math.floor(i/pts*6),m=Math.floor((i%8)*7.5);return`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;});
+
+  // Pakai Yahoo historical data kalau tersedia
+  const yahooData = s.ticker ? yahooCache[s.ticker]?.data : null;
+  let closes, labels;
+
+  if (yahooData && yahooData.length >= 10) {
+    const slice = yahooData.slice(-60); // 60 hari terakhir
+    closes = slice.map(d => d.close);
+    labels = slice.map(d => d.date);
+    closes[closes.length-1] = s.price || closes[closes.length-1]; // Patch harga hari ini
+  } else {
+    // Fallback: simulasi intraday
+    const pts = 48;
+    let price = s.price * .96; closes = [];
+    for (let i = 0; i < pts; i++) { price += (Math.random()-.43)*price*.009; closes.push(parseFloat(price.toFixed(0))); }
+    closes[pts-1] = s.price;
+    labels = closes.map((_,i) => {const h=9+Math.floor(i/pts*6),m=Math.floor((i%8)*7.5);return`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;});
+  }
+  const n = closes.length;
+  // Calculate MA20 from actual closes
+  const ma20Line = closes.map((_,i) => {
+    if (i < 19) return null;
+    const slice = closes.slice(i-19, i+1);
+    return Math.round(slice.reduce((a,b)=>a+(b||0),0)/20);
+  });
+  // VWAP as flat line at current vwap level
+  const vwapLine = closes.map(() => s.vwap || s.price);
+
   chart = new Chart(ctx, {type:'line',data:{labels,datasets:[
-    {label:'Price',data:closes,borderColor:'rgba(59,130,246,.9)',backgroundColor:'rgba(59,130,246,.06)',borderWidth:1.5,pointRadius:0,tension:.3,fill:true},
-    {label:'VWAP',data:closes.map((_,i)=>(s.vwap||s.price)*(.97+i/pts*.04)),borderColor:'rgba(245,158,11,.7)',borderWidth:1,pointRadius:0,borderDash:[5,4],tension:.3,fill:false},
-    {label:'MA20',data:closes.map((_,i)=>(s.ma20||s.price)*(.985+i/pts*.022)),borderColor:'rgba(109,40,217,.6)',borderWidth:1,pointRadius:0,borderDash:[2,3],tension:.3,fill:false},
+    {label:'Price',data:closes,borderColor:'rgba(59,130,246,.9)',backgroundColor:'rgba(59,130,246,.06)',borderWidth:1.5,pointRadius:0,tension:.2,fill:true},
+    {label:'VWAP',data:vwapLine,borderColor:'rgba(245,158,11,.7)',borderWidth:1,pointRadius:0,borderDash:[5,4],tension:.0,fill:false},
+    {label:'MA20',data:ma20Line,borderColor:'rgba(109,40,217,.6)',borderWidth:1.5,pointRadius:0,borderDash:[],tension:.2,fill:false,spanGaps:true},
   ]},options:{responsive:true,maintainAspectRatio:false,animation:{duration:400},interaction:{intersect:false,mode:'index'},
   plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(11,15,26,.95)',borderColor:'rgba(31,41,55,1)',borderWidth:1,titleFont:{family:'IBM Plex Mono',size:9},bodyFont:{family:'IBM Plex Mono',size:9},titleColor:'#6B7280',bodyColor:'#F9FAFB',padding:8}},
   scales:{x:{grid:{color:'rgba(31,41,55,.5)',drawBorder:false},ticks:{color:'#6B7280',font:{family:'IBM Plex Mono',size:8},maxTicksLimit:6}},
@@ -2017,6 +2040,58 @@ function calcProScore(d, ticker) {
 // KLINE CACHE
 // ════════════════════════════════════════════════════
 const klineCache = {};
+const yahooCache = {};
+
+// Fetch Yahoo Finance 90-day historical data
+async function fetchYahooData(ticker) {
+  if (yahooCache[ticker] && Date.now()-yahooCache[ticker].ts<86400000) return yahooCache[ticker].data;
+  try {
+    const r = await fetch(`${API}?endpoint=yahoo_history&code=${ticker}`);
+    const j = await r.json();
+    if (j.code!==0||!j.data?.chart?.result?.[0]) return null;
+    const result = j.data.chart.result[0];
+    const ts = result.timestamp||[];
+    const q  = result.indicators?.quote?.[0]||{};
+    const closes  = q.close||[];
+    const highs   = q.high||[];
+    const lows    = q.low||[];
+    const volumes = q.volume||[];
+    const data = ts.map((t,i)=>({
+      date: new Date(t*1000).toLocaleDateString('id-ID'),
+      close: closes[i]||0, high: highs[i]||0,
+      low: lows[i]||0, volume: volumes[i]||0,
+    })).filter(d=>d.close>0);
+    yahooCache[ticker] = {data, ts:Date.now()};
+    return data;
+  } catch(e) { return null; }
+}
+
+// Calculate SR levels from 90-day high/low
+function calcSRFromYahoo(yahooData, currentPrice) {
+  if (!yahooData || yahooData.length < 5) return null;
+  const recent = yahooData.slice(-20);
+  const all90  = yahooData;
+  const high20 = Math.max(...recent.map(d=>d.high));
+  const low20  = Math.min(...recent.map(d=>d.low));
+  const high90 = Math.max(...all90.map(d=>d.high));
+  const low90  = Math.min(...all90.map(d=>d.low));
+  // Round to nearest 10
+  const r = v => Math.round(v/10)*10;
+  return [
+    {type:'R2', level:r(high90), strength:5, label:'High 90 Hari'},
+    {type:'R1', level:r(high20), strength:4, label:'High 20 Hari'},
+    {type:'S1', level:r(low20),  strength:4, label:'Low 20 Hari'},
+    {type:'S2', level:r(low90),  strength:5, label:'Low 90 Hari'},
+  ];
+}
+
+// Calculate average volume from Yahoo (20-day)
+function calcAvgVolFromYahoo(yahooData) {
+  if (!yahooData || yahooData.length < 5) return 0;
+  const recent = yahooData.slice(-20).map(d=>d.volume).filter(v=>v>0);
+  return recent.reduce((a,b)=>a+b,0) / recent.length;
+}
+
 async function fetchKlineHistory(ticker) {
   if (klineCache[ticker] && Date.now()-klineCache[ticker].ts<300000) return klineCache[ticker].data;
   try {
@@ -2145,6 +2220,13 @@ function applyQuoteToStock(stock, d) {
   stock.open = d.o || d.ld;
   stock.prevClose = d.pc || d.ld;
 
+  // Inject Yahoo avgVol into quote data for better volRatio
+  const yahooData = yahooCache[stock.ticker]?.data;
+  if (yahooData) {
+    const avgVol = calcAvgVolFromYahoo(yahooData);
+    if (avgVol > 0) d.avol = avgVol;
+  }
+
   const pro = calcProScore(d, stock.ticker);
   if (!pro) return;
 
@@ -2164,6 +2246,12 @@ function applyQuoteToStock(stock, d) {
   stock.entry = `${Math.round(d.ld*.99/10)*10}–${Math.round(d.ld/10)*10}`;
   stock.tp = `${pro.tp1?.toLocaleString('id')||'–'} (+3%)`;
   stock.lot = '~' + Math.round(10000000/(d.ld*100)) + ' lot';
+
+  // Upgrade SR levels from Yahoo 90-day data if available
+  if (yahooData) {
+    const yahooSR = calcSRFromYahoo(yahooData, stock.price);
+    if (yahooSR) stock.sr = yahooSR;
+  }
 
   // RS
   const rs = calcRelativeStrength(stock.chg, marketCtx.chg);
@@ -2361,6 +2449,24 @@ async function fetchRotationBatch() {
     if (!stock) { stock=makeDefaultStock(ticker,ticker,'IDX'); ALL_STOCKS.push(stock); }
 
     applyQuoteToStock(stock, d);
+
+    // Fetch Yahoo history untuk saham ini jika belum ada (background, non-blocking)
+    if (!yahooCache[ticker] || Date.now()-yahooCache[ticker].ts>86400000) {
+      fetchYahooData(ticker).then(yahooData => {
+        if (yahooData && stock) {
+          // Re-upgrade SR setelah Yahoo data masuk
+          const yahooSR = calcSRFromYahoo(yahooData, stock.price);
+          if (yahooSR) { stock.sr = yahooSR; }
+          // Re-upgrade avgVol
+          const avgVol = calcAvgVolFromYahoo(yahooData);
+          if (avgVol > 0 && stock.volRatio) {
+            stock.volRatio = parseFloat((stock.vol / avgVol).toFixed(2));
+          }
+          if (selected && selected.ticker === ticker) renderChartPage();
+        }
+      }).catch(()=>{});
+    }
+
     ALL_STOCKS.sort((a,b) => b.score-a.score);
     renderScanPage();
 
