@@ -5,7 +5,7 @@ export default async function handler(req, res) {
 
   const { endpoint, code, interval, limit } = req.query;
   const TOKEN = process.env.ITICK_TOKEN;
-
+  console.log('Proxy called:', req.url, 'endpoint:', endpoint, 'code:', code);
   try {
     if (endpoint === 'quote' || endpoint === 'kline') {
       let url = '';
