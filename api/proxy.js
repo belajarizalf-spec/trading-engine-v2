@@ -1,4 +1,4 @@
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store');
 
@@ -20,12 +20,13 @@ export default async function handler(req, res) {
 
     if (endpoint === 'quote') {
       url = `${BASE}/stock/quote?token=${TOKEN}&region=ID&code=${code}`;
+
     } else if (endpoint === 'kline') {
       const iv = interval || '8';
       const lm = limit || '21';
       url = `${BASE}/stock/kline?token=${TOKEN}&region=ID&code=${code}&kType=${iv}&limit=${lm}`;
+
     } else if (endpoint === 'yahoo_history') {
-      // Yahoo Finance via public API
       const period2 = Math.floor(Date.now() / 1000);
       const period1 = period2 - 90 * 86400;
       url = `https://query1.finance.yahoo.com/v8/finance/chart/${code}.JK?interval=1d&period1=${period1}&period2=${period2}`;
@@ -34,6 +35,7 @@ export default async function handler(req, res) {
       });
       const j = await r.json();
       return res.status(200).json({ code: 0, data: j });
+
     } else {
       return res.status(400).json({ code: -1, msg: 'Unknown endpoint' });
     }
@@ -41,3 +43,8 @@ export default async function handler(req, res) {
     const r = await fetch(url);
     const j = await r.json();
     return res.status(200).json(j);
+
+  } catch (e) {
+    return res.status(500).json({ code: -1, msg: e.message });
+  }
+};
