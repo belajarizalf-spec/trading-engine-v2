@@ -1137,7 +1137,15 @@ const IDX_DATABASE = [
 // API CONFIG
 // ════════════════════════════════════════════════════
 const VERCEL_URL  = 'https://trading-engine-v2.vercel.app';
-const API         = VERCEL_URL + '/api/proxy';
+const API = VERCEL_URL + '/api/proxy';
+
+// Override fetch untuk bypass firewall
+async function apiFetch(endpoint, code, extra = {}) {
+  const params = new URLSearchParams({ endpoint, code, ...extra });
+  const url = `${API}?${params}`;
+  const r = await fetch(url);
+  return r.json();
+}
 const IS_VERCEL   = true;
 const ITICK_TOKEN = 'NA';
 const REGION      = 'ID';
