@@ -32,7 +32,7 @@ module.exports = async function handler(req, res) {
 
   if (!TOKEN) return res.status(500).json({ code: -1, msg: 'TOKEN MISSING' });
 
-  const BASE = 'https://api.itick.org';
+  const BASE = 'https://api-free.itick.org';
 
   try {
     let url = '';
